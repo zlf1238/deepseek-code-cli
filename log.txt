@@ -1,8 +1,76 @@
-❯ 你好
-Assistant
-  你好！有什么我可以帮你的吗？
-status: completed · tokens: 6.8k/839k (1%) · model: deepseek-v4-pro
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯ 你是谁
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-enter send · shift+enter newline · ctrl+v image · / commands · ctrl+d exit · model: deepseek-v4-pro (DeepSeek)
+root@ZhengLingFeng:/mnt/d/Java/IdeaProjects/deepseek-code-cli# npm run build && node dist/cli.cjs
+
+> @vegamo/deepseek-code-cli@0.1.8 build
+> npm run typecheck && npm run bundle && chmod +x dist/cli.cjs
+
+
+> @vegamo/deepseek-code-cli@0.1.8 typecheck
+> tsc -p ./ --noEmit
+
+src/tests/completionSummary.test.ts:62:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+62   assert.ok(msg.content.includes("✓ completed"));
+               ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:63:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+63   assert.ok(msg.content.includes("⏱ 5.2s"));
+               ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:64:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+64   assert.ok(msg.content.includes("token: 1.2k"));
+               ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:65:35 - error TS2339: Property 'statusColor' does not exist on type '{}'.
+
+65   assert.equal(msg.messageParams?.statusColor, "green");
+                                     ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:75:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+75   assert.ok(msg.content.includes("✗ failed"));
+               ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:76:35 - error TS2339: Property 'statusColor' does not exist on type '{}'.
+
+76   assert.equal(msg.messageParams?.statusColor, "red");
+                                     ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:86:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+86   assert.ok(msg.content.includes("⚠ interrupted"));
+               ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:87:35 - error TS2339: Property 'statusColor' does not exist on type '{}'.
+
+87   assert.equal(msg.messageParams?.statusColor, "yellow");
+                                     ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:97:14 - error TS18047: 'msg.content' is possibly 'null'.
+
+97   assert.ok(!msg.content.includes("token:"));
+                ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:98:16 - error TS18047: 'msg.content' is possibly 'null'.
+
+98   assert.equal(msg.content.includes("✓ completed"), true);
+                  ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:107:14 - error TS18047: 'msg.content' is possibly 'null'.
+
+107   assert.ok(!msg.content.includes("token:"));
+                 ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:116:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+116   assert.ok(msg.content.includes("token: 1M"));
+                ~~~~~~~~~~~
+
+src/tests/completionSummary.test.ts:117:13 - error TS18047: 'msg.content' is possibly 'null'.
+
+117   assert.ok(msg.content.includes("⏱ 5m0s"));
+                ~~~~~~~~~~~
+
+
+Found 13 errors in the same file, starting at: src/tests/completionSummary.test.ts:62

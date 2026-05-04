@@ -225,6 +225,11 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       }
 
       promptStartTimeRef.current = Date.now();
+      // Record cumulative tokens before this round so we can compute per-round consumption
+      const activeSessionIdBefore = sessionManager.getActiveSessionId();
+      const sessionBefore = activeSessionIdBefore ? sessionManager.getSession(activeSessionIdBefore) : null;
+      const totalTokensBefore = sessionBefore ? getTotalTokens(sessionBefore.usage) : 0;
+
       setBusy(true);
       setErrorLine(null);
       setRunningProcesses(null);
@@ -236,7 +241,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         if (activeSessionId) {
           const session = sessionManager.getSession(activeSessionId);
           if (session) {
-            const summaryMessage = buildCompletionSummary(session, elapsedMs);
+            const totalTokens = getTotalTokens(session.usage);
+            const roundTokens = Math.max(0, totalTokens - totalTokensBefore);
+            const summaryMessage = buildCompletionSummary(session, elapsedMs, roundTokens, totalTokens);
             dispatchMessages({ type: "appendMessage", message: summaryMessage });
           }
         }
@@ -421,11 +428,14 @@ function buildSyntheticUserMessage(content: string, imageCount: number): Session
   };
 }
 
-export function buildCompletionSummary(session: SessionEntry, elapsedMs: number): SessionMessage {
+export function buildCompletionSummary(
+  session: SessionEntry,
+  elapsedMs: number,
+  roundTokens: number,
+  totalTokens: number
+): SessionMessage {
   const now = new Date().toISOString();
   const elapsed = formatElapsed(elapsedMs);
-  const totalTokens = getTotalTokens(session.usage);
-  const tokenStr = formatTokenCount(totalTokens);
 
   let statusIcon = "";
   let statusColor = "";
@@ -450,7 +460,7 @@ export function buildCompletionSummary(session: SessionEntry, elapsedMs: number)
   const parts: string[] = [`${statusIcon} ${session.status}`];
   parts.push(`⏱ ${elapsed}`);
   if (totalTokens > 0) {
-    parts.push(`token: ${tokenStr}`);
+    parts.push(`token: ${formatTokenCount(roundTokens)} / ${formatTokenCount(totalTokens)}`);
   }
 
   return {

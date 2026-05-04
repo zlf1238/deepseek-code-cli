@@ -54,15 +54,26 @@ test("buildCompletionSummary includes elapsed time and token count for completed
   const session = makeSession({
     usage: { total_tokens: 1234 }
   });
-  const msg = buildCompletionSummary(session, 5230);
+  // First round: round == total
+  const msg = buildCompletionSummary(session, 5230, 1234, 1234);
 
   assert.equal(msg.role, "system");
   assert.equal(msg.visible, true);
   assert.equal(msg.meta?.isSummary, true);
-  assert.ok(msg.content.includes("✓ completed"));
-  assert.ok(msg.content.includes("⏱ 5.2s"));
-  assert.ok(msg.content.includes("token: 1.2k"));
-  assert.equal(msg.messageParams?.statusColor, "green");
+  assert.ok(msg.content?.includes("✓ completed"));
+  assert.ok(msg.content?.includes("⏱ 5.2s"));
+  assert.ok(msg.content?.includes("token: 1.2k / 1.2k"));
+  assert.equal((msg.messageParams as any)?.statusColor, "green");
+});
+
+test("buildCompletionSummary shows round and cumulative tokens when they differ", () => {
+  const session = makeSession({
+    usage: { total_tokens: 8500 }
+  });
+  // Second round: round=3600, total=8500
+  const msg = buildCompletionSummary(session, 15300, 3600, 8500);
+
+  assert.ok(msg.content?.includes("token: 3.6k / 8.5k"));
 });
 
 test("buildCompletionSummary shows failed status in red", () => {
@@ -70,10 +81,10 @@ test("buildCompletionSummary shows failed status in red", () => {
     status: "failed",
     usage: { total_tokens: 500 }
   });
-  const msg = buildCompletionSummary(session, 3000);
+  const msg = buildCompletionSummary(session, 3000, 500, 500);
 
-  assert.ok(msg.content.includes("✗ failed"));
-  assert.equal(msg.messageParams?.statusColor, "red");
+  assert.ok(msg.content?.includes("✗ failed"));
+  assert.equal((msg.messageParams as any)?.statusColor, "red");
 });
 
 test("buildCompletionSummary shows interrupted status in yellow", () => {
@@ -81,53 +92,44 @@ test("buildCompletionSummary shows interrupted status in yellow", () => {
     status: "interrupted",
     usage: { total_tokens: 800 }
   });
-  const msg = buildCompletionSummary(session, 15000);
+  const msg = buildCompletionSummary(session, 15000, 800, 800);
 
-  assert.ok(msg.content.includes("⚠ interrupted"));
-  assert.equal(msg.messageParams?.statusColor, "yellow");
+  assert.ok(msg.content?.includes("⚠ interrupted"));
+  assert.equal((msg.messageParams as any)?.statusColor, "yellow");
 });
 
-test("buildCompletionSummary omits token info when usage is null", () => {
+test("buildCompletionSummary omits token info when total is 0", () => {
   const session = makeSession({
     status: "completed",
     usage: null
   });
-  const msg = buildCompletionSummary(session, 1000);
+  const msg = buildCompletionSummary(session, 1000, 0, 0);
 
-  assert.ok(!msg.content.includes("token:"));
-  assert.equal(msg.content.includes("✓ completed"), true);
-});
-
-test("buildCompletionSummary omits token info when total_tokens is 0", () => {
-  const session = makeSession({
-    usage: { total_tokens: 0 }
-  });
-  const msg = buildCompletionSummary(session, 2000);
-
-  assert.ok(!msg.content.includes("token:"));
+  assert.ok(!msg.content?.includes("token:"));
+  assert.equal(msg.content?.includes("✓ completed"), true);
 });
 
 test("buildCompletionSummary handles large token counts", () => {
   const session = makeSession({
     usage: { total_tokens: 1_200_000 }
   });
-  const msg = buildCompletionSummary(session, 300000);
+  const msg = buildCompletionSummary(session, 300000, 500_000, 1_200_000);
 
-  assert.ok(msg.content.includes("token: 1M"));
-  assert.ok(msg.content.includes("⏱ 5m0s"));
+  assert.ok(msg.content?.includes("token: 500k / 1M"));
+  assert.ok(msg.content?.includes("⏱ 5m0s"));
 });
 
 test("buildCompletionSummary uses the correct session id", () => {
   const session = makeSession({ id: "abc-123" });
-  const msg = buildCompletionSummary(session, 500);
+  const msg = buildCompletionSummary(session, 500, 100, 100);
 
   assert.equal(msg.sessionId, "abc-123");
 });
 
 test("buildCompletionSummary generates a unique id per call", () => {
   const session = makeSession();
-  const msg1 = buildCompletionSummary(session, 100);
-  const msg2 = buildCompletionSummary(session, 200);
+  const msg1 = buildCompletionSummary(session, 100, 50, 50);
+  const msg2 = buildCompletionSummary(session, 200, 50, 50);
 
   assert.notEqual(msg1.id, msg2.id);
 });
