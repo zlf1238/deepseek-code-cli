@@ -85,7 +85,7 @@ export function MessageView({ message, collapsed }: Props): React.ReactElement |
     if (message.meta?.isSummary) {
       const statusColor = (message.messageParams as { statusColor?: string } | null)?.statusColor ?? "gray";
       return (
-        <Box marginY={0}>
+        <Box flexDirection="column" marginTop={1}>
           <Text color={statusColor as Parameters<typeof Text>[0]["color"]} bold>{message.content}</Text>
         </Box>
       );
