@@ -182,7 +182,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         sessionManager.setActiveSessionId(null);
         // Synchronously clear screen before React re-renders,
         // so the old Static output is wiped before new UI appears.
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        directTerminalWrite("\u001B[2J\u001B[H");
         dispatchMessages({ type: "resetMessages" });
         setStatusLine("");
         setErrorLine(null);
@@ -196,7 +196,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       }
       if (submission.command === "resume") {
         // Clear screen before switching views to avoid stale Ink output artifacts
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        directTerminalWrite("\u001B[2J\u001B[H");
         refreshSessionsList();
         setView("session-list");
         isSubmittingRef.current = false;
@@ -263,7 +263,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     async (sessionId: string) => {
       sessionManager.setActiveSessionId(sessionId);
       // Clear screen before loading new messages — old Static output persists otherwise.
-      directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+      directTerminalWrite("\u001B[2J\u001B[H");
       dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
       const session = sessionManager.getSession(sessionId);
       setStatusLine(session ? buildStatusLine(session, activeModelRef.current) : "");
@@ -352,7 +352,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           sessions={sessions}
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            directTerminalWrite("\u001B[2J\u001B[H");
             setView("chat");
           }}
           onDelete={(ids) => {
@@ -362,7 +362,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             setActiveStatus(null);
             setView("chat");
             refreshSessionsList();
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            directTerminalWrite("\u001B[2J\u001B[H");
           }}
         />
       ) : shouldShowQuestionPrompt && pendingQuestion && !busy ? (
