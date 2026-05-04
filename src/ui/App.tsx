@@ -421,7 +421,7 @@ function buildSyntheticUserMessage(content: string, imageCount: number): Session
   };
 }
 
-function buildCompletionSummary(session: SessionEntry, elapsedMs: number): SessionMessage {
+export function buildCompletionSummary(session: SessionEntry, elapsedMs: number): SessionMessage {
   const now = new Date().toISOString();
   const elapsed = formatElapsed(elapsedMs);
   const totalTokens = getTotalTokens(session.usage);
@@ -468,7 +468,7 @@ function buildCompletionSummary(session: SessionEntry, elapsedMs: number): Sessi
   };
 }
 
-function formatElapsed(ms: number): string {
+export function formatElapsed(ms: number): string {
   const totalSeconds = ms / 1000;
   if (totalSeconds < 60) {
     return `${totalSeconds.toFixed(1)}s`;
