@@ -45,7 +45,7 @@ function accumulateUsage(current: unknown | null, next: unknown | null | undefin
   return addUsageValue(current, next);
 }
 
-function getTotalTokens(usage: unknown | null | undefined): number {
+export function getTotalTokens(usage: unknown | null | undefined): number {
   if (!isUsageRecord(usage)) {
     return 0;
   }

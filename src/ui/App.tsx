@@ -6,6 +6,7 @@ import * as path from "path";
 import OpenAI from "openai";
 import {
   SessionManager,
+  getTotalTokens,
   type LlmStreamProgress,
   type SessionEntry,
   type SessionMessage,
@@ -81,6 +82,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const [, setNowTick] = useState(0);
   const handlePromptRef = useRef<(submission: PromptSubmission) => void>(() => {});
   const isSubmittingRef = useRef(false);
+  const promptStartTimeRef = useRef<number>(0);
 
   // Model switching
   const initialSettings = useMemo(() => resolveCurrentSettings(), []);
@@ -222,11 +224,22 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         });
       }
 
+      promptStartTimeRef.current = Date.now();
       setBusy(true);
       setErrorLine(null);
       setRunningProcesses(null);
       try {
         await sessionManager.handleUserPrompt(prompt);
+        // Append a completion summary with elapsed time and token usage
+        const elapsedMs = Date.now() - promptStartTimeRef.current;
+        const activeSessionId = sessionManager.getActiveSessionId();
+        if (activeSessionId) {
+          const session = sessionManager.getSession(activeSessionId);
+          if (session) {
+            const summaryMessage = buildCompletionSummary(session, elapsedMs);
+            dispatchMessages({ type: "appendMessage", message: summaryMessage });
+          }
+        }
         await refreshSkills();
         refreshSessionsList();
       } catch (error) {
@@ -406,6 +419,63 @@ function buildSyntheticUserMessage(content: string, imageCount: number): Session
     createTime: now,
     updateTime: now
   };
+}
+
+function buildCompletionSummary(session: SessionEntry, elapsedMs: number): SessionMessage {
+  const now = new Date().toISOString();
+  const elapsed = formatElapsed(elapsedMs);
+  const totalTokens = getTotalTokens(session.usage);
+  const tokenStr = formatTokenCount(totalTokens);
+
+  let statusIcon = "";
+  let statusColor = "";
+  switch (session.status) {
+    case "completed":
+      statusIcon = "✓";
+      statusColor = "green";
+      break;
+    case "failed":
+      statusIcon = "✗";
+      statusColor = "red";
+      break;
+    case "interrupted":
+      statusIcon = "⚠";
+      statusColor = "yellow";
+      break;
+    default:
+      statusIcon = "•";
+      statusColor = "gray";
+  }
+
+  const parts: string[] = [`${statusIcon} ${session.status}`];
+  parts.push(`⏱ ${elapsed}`);
+  if (totalTokens > 0) {
+    parts.push(`token: ${tokenStr}`);
+  }
+
+  return {
+    id: `summary-${Math.random().toString(36).slice(2)}`,
+    sessionId: session.id,
+    role: "system",
+    content: parts.join(" · "),
+    contentParams: null,
+    messageParams: { statusColor },
+    compacted: false,
+    visible: true,
+    createTime: now,
+    updateTime: now,
+    meta: { isSummary: true }
+  };
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  return `${minutes}m${seconds}s`;
 }
 
 function buildStatusLine(entry: SessionEntry, activeModel?: string): string {
