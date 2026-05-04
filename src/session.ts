@@ -53,6 +53,22 @@ export function getTotalTokens(usage: unknown | null | undefined): number {
   return typeof totalTokens === "number" ? totalTokens : 0;
 }
 
+export function getPromptTokens(usage: unknown | null | undefined): number {
+  if (!isUsageRecord(usage)) {
+    return 0;
+  }
+  const promptTokens = usage.prompt_tokens;
+  return typeof promptTokens === "number" ? promptTokens : 0;
+}
+
+export function getCompletionTokens(usage: unknown | null | undefined): number {
+  if (!isUsageRecord(usage)) {
+    return 0;
+  }
+  const completionTokens = usage.completion_tokens;
+  return typeof completionTokens === "number" ? completionTokens : 0;
+}
+
 function formatTokenCount(tokens: number): string {
   if (tokens < 1000) return String(tokens);
   if (tokens < 10000) return `${(tokens / 1000).toFixed(1)}k`;

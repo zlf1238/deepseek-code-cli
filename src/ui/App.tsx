@@ -7,6 +7,8 @@ import OpenAI from "openai";
 import {
   SessionManager,
   getTotalTokens,
+  getPromptTokens,
+  getCompletionTokens,
   type LlmStreamProgress,
   type SessionEntry,
   type SessionMessage,
@@ -14,7 +16,7 @@ import {
   type SkillInfo,
   type UserPromptContent
 } from "../session";
-import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, type DeepcodingSettings } from "../settings";
+import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, type DeepcodingSettings, type PricingConfig } from "../settings";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
 import { SessionList } from "./SessionList";
@@ -93,6 +95,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   messagesRef.current = messages;
   const activeModelRef = useRef(activeModel);
   activeModelRef.current = activeModel;
+  const pricingRef = useRef<Required<PricingConfig>>({ inputPricePerMillion: 0, outputPricePerMillion: 0 });
 
   const sessionManager = useMemo(() => {
     return new SessionManager({
@@ -229,21 +232,27 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       const activeSessionIdBefore = sessionManager.getActiveSessionId();
       const sessionBefore = activeSessionIdBefore ? sessionManager.getSession(activeSessionIdBefore) : null;
       const totalTokensBefore = sessionBefore ? getTotalTokens(sessionBefore.usage) : 0;
+      const promptTokensBefore = sessionBefore ? getPromptTokens(sessionBefore.usage) : 0;
+      const completionTokensBefore = sessionBefore ? getCompletionTokens(sessionBefore.usage) : 0;
 
       setBusy(true);
       setErrorLine(null);
       setRunningProcesses(null);
       try {
         await sessionManager.handleUserPrompt(prompt);
-        // Append a completion summary with elapsed time and token usage
+        // Append a completion summary with elapsed time, token usage, and cost
         const elapsedMs = Date.now() - promptStartTimeRef.current;
         const activeSessionId = sessionManager.getActiveSessionId();
         if (activeSessionId) {
           const session = sessionManager.getSession(activeSessionId);
           if (session) {
             const totalTokens = getTotalTokens(session.usage);
+            const roundPromptTokens = Math.max(0, getPromptTokens(session.usage) - promptTokensBefore);
+            const roundCompletionTokens = Math.max(0, getCompletionTokens(session.usage) - completionTokensBefore);
             const roundTokens = Math.max(0, totalTokens - totalTokensBefore);
-            const summaryMessage = buildCompletionSummary(session, elapsedMs, roundTokens, totalTokens);
+            const summaryMessage = buildCompletionSummary(
+              session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens, pricingRef.current
+            );
             dispatchMessages({ type: "appendMessage", message: summaryMessage });
           }
         }
@@ -305,6 +314,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   // Dynamic settings: re-resolve when activeModel changes (model persisting to disk
   // means resolveCurrentSettings picks up the new model + its per-model overrides)
   const welcomeSettings = useMemo(() => resolveCurrentSettings(), [activeModel]);
+  pricingRef.current = welcomeSettings.pricing;
 
   const handleQuestionAnswers = useCallback(
     (answers: AskUserQuestionAnswers) => {
@@ -432,7 +442,9 @@ export function buildCompletionSummary(
   session: SessionEntry,
   elapsedMs: number,
   roundTokens: number,
-  totalTokens: number
+  roundPromptTokens: number,
+  roundCompletionTokens: number,
+  pricing: Required<PricingConfig>
 ): SessionMessage {
   const now = new Date().toISOString();
   const elapsed = formatElapsed(elapsedMs);
@@ -458,9 +470,13 @@ export function buildCompletionSummary(
   }
 
   const parts: string[] = [`${statusIcon} ${session.status}`];
-  parts.push(`⏱ ${elapsed}`);
-  if (totalTokens > 0) {
-    parts.push(`token: ${formatTokenCount(roundTokens)} / ${formatTokenCount(totalTokens)}`);
+  parts.push(`耗时: ${elapsed}`);
+  parts.push(`token: ${formatTokenCount(roundTokens)}`);
+
+  const cost = (roundPromptTokens / 1_000_000) * pricing.inputPricePerMillion
+    + (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
+  if (cost > 0) {
+    parts.push(`费用: ¥${formatCost(cost)}`);
   }
 
   return {
@@ -476,6 +492,22 @@ export function buildCompletionSummary(
     updateTime: now,
     meta: { isSummary: true }
   };
+}
+
+function formatCost(cost: number): string {
+  if (cost < 0.001) {
+    return cost.toFixed(6);
+  }
+  if (cost < 0.01) {
+    return cost.toFixed(4);
+  }
+  if (cost < 1) {
+    return cost.toFixed(3);
+  }
+  if (cost < 10) {
+    return cost.toFixed(2);
+  }
+  return cost.toFixed(1);
 }
 
 export function formatElapsed(ms: number): string {

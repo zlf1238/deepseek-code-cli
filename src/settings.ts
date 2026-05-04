@@ -15,6 +15,12 @@ export type ReasoningEffort = "high" | "max";
 export type ModelOverride = {
   baseURL?: string;
   apiKey?: string;
+  pricing?: PricingConfig;
+};
+
+export type PricingConfig = {
+  inputPricePerMillion?: number;
+  outputPricePerMillion?: number;
 };
 
 export type DeepcodingSettings = {
@@ -24,6 +30,7 @@ export type DeepcodingSettings = {
   reasoningEffort?: ReasoningEffort;
   notify?: string;
   webSearchTool?: string;
+  pricing?: PricingConfig;
 };
 
 export type ResolvedDeepcodingSettings = {
@@ -34,6 +41,7 @@ export type ResolvedDeepcodingSettings = {
   reasoningEffort: ReasoningEffort;
   notify?: string;
   webSearchTool?: string;
+  pricing: Required<PricingConfig>;
 };
 
 function resolveReasoningEffort(value: unknown): ReasoningEffort {
@@ -74,6 +82,26 @@ export function resolveSettings(
   const resolvedBaseURL =
     modelOverride?.baseURL?.trim() || env.BASE_URL?.trim() || defaults.baseURL;
 
+  const resolvePrice = (field: "inputPricePerMillion" | "outputPricePerMillion"): number => {
+    // 1. Per-model pricing
+    const modelPrice = modelOverride?.pricing?.[field];
+    if (typeof modelPrice === "number" && !Number.isNaN(modelPrice)) {
+      return modelPrice;
+    }
+    // 2. Global pricing
+    const globalPrice = settings?.pricing?.[field];
+    if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
+      return globalPrice;
+    }
+    // 3. Default
+    return 0;
+  };
+
+  const pricing: Required<PricingConfig> = {
+    inputPricePerMillion: resolvePrice("inputPricePerMillion"),
+    outputPricePerMillion: resolvePrice("outputPricePerMillion"),
+  };
+
   return {
     apiKey: resolvedApiKey,
     baseURL: resolvedBaseURL,
@@ -81,7 +109,8 @@ export function resolveSettings(
     thinkingEnabled: resolveThinkingEnabled(settings, model),
     reasoningEffort: resolveReasoningEffort(settings?.reasoningEffort),
     notify: notify || undefined,
-    webSearchTool: webSearchTool || undefined
+    webSearchTool: webSearchTool || undefined,
+    pricing
   };
 }
 
