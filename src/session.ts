@@ -715,7 +715,9 @@ The candidate skills are as follows:\n\n`;
     this.saveSessionsIndex(index);
     this.removeSessionMessages(droppedEntries.map((item) => item.id));
 
-    const systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions());
+    // 提前获取主模型，用于选择对应模型优化的系统提示词
+    const primaryModel = this.createOpenAIClient().model;
+    const systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions(primaryModel));
     const systemMessage = this.buildSystemMessage(sessionId, systemPrompt);
     this.appendSessionMessage(sessionId, systemMessage);
 
@@ -924,7 +926,7 @@ ${skillMd}
           {
             model: currentModel,
             messages,
-            tools: getTools(this.getPromptToolOptions()),
+            tools: getTools(this.getPromptToolOptions(currentModel)),
             ...thinkingOptions
           },
           { signal: sessionController.signal },
@@ -1102,9 +1104,10 @@ ${skillMd}
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(): { webSearchEnabled: boolean } {
+  private getPromptToolOptions(model?: string): { webSearchEnabled: boolean; model?: string } {
     return {
-      webSearchEnabled: true
+      webSearchEnabled: true,
+      model
     };
   }
 
