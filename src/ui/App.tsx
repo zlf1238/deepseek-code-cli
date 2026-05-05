@@ -370,6 +370,8 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
             directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            // Bump staticKey so <Static> re-renders all messages after screen clear
+            dispatchMessages({ type: "setMessages", messages: messagesRef.current });
             setView("chat");
           }}
           onDelete={(ids) => {
