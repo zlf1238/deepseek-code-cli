@@ -96,8 +96,8 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text color="yellow">No previous sessions found.</Text>
-        <Text dimColor>Press Esc to go back.</Text>
+        <Text color="yellow">暂无历史会话。</Text>
+        <Text dimColor>按 Esc 返回。</Text>
       </Box>
     );
   }
@@ -105,19 +105,21 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
   return (
     <Box flexDirection="column">
       <Text bold color={deleteMode ? "red" : "cyanBright"}>
-        {deleteMode ? "Delete sessions" : "Resume a session"}
+        {deleteMode ? "删除会话" : "选择一个会话继续"}
       </Text>
       {sessions.slice(0, 30).map((session, i) => {
         const isCurrent = i === index;
         const isSelected = selectedIds.has(session.id);
         let prefix: string;
         if (deleteMode) {
-          prefix = isSelected ? "\u001b[31m[x]\u001b[39m " : "[ ] ";
+          const pos = isCurrent ? "\u001b[36m›\u001b[39m " : "  ";
+          const check = isSelected ? "\u001b[31m[x]\u001b[39m" : "[ ]";
+          prefix = pos + check + " ";
         } else {
           prefix = isCurrent ? "\u001b[36m›\u001b[39m " : "  ";
         }
         const color = deleteMode
-          ? isSelected ? "red" : undefined
+          ? isSelected ? "red" : isCurrent ? "cyanBright" : undefined
           : isCurrent ? "cyanBright" : undefined;
 
         return (
@@ -129,14 +131,17 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
           </Text>
         );
       })}
-      {sessions.length > 30 ? <Text dimColor>… {sessions.length - 30} older sessions hidden.</Text> : null}
+      {sessions.length > 30 ? <Text dimColor>…… 还有 {sessions.length - 30} 个更早的会话已隐藏</Text> : null}
       <Box marginTop={1}>
         {deleteMode ? (
           <Text dimColor>
-            Space select · a {selectedIds.size === sessions.length ? "deselect all" : "select all"} · Enter confirm delete ({selectedIds.size} selected) · Esc/d exit delete mode
+            {selectedIds.size === sessions.length
+              ? "空格/a: 取消全选"
+              : "空格: 切换选择 · a: 全选"}
+            · Enter: 确认删除({selectedIds.size} 个) · Esc/d: 退出删除模式
           </Text>
         ) : (
-          <Text dimColor>↑/↓ navigate · Enter select · d delete mode · Esc cancel</Text>
+          <Text dimColor>↑/↓: 切换选择 · Enter: 继续该会话 · d: 进入批量删除模式 · Esc: 返回</Text>
         )}
       </Box>
     </Box>
