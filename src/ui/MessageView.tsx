@@ -230,14 +230,7 @@ function parseToolPayload(
 }
 
 function getToolDiffPreviewLines(summary: ToolSummary): DiffPreviewLine[] {
-  if (!summary.ok || !["edit", "write"].includes(summary.name.toLowerCase())) {
-    return [];
-  }
-  const diffPreview = summary.metadata?.diff_preview;
-  if (typeof diffPreview !== "string" || !diffPreview.trim()) {
-    return [];
-  }
-  return parseDiffPreview(diffPreview);
+  return [];
 }
 
 export function parseDiffPreview(diffPreview: string): DiffPreviewLine[] {
