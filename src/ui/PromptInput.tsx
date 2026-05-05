@@ -562,19 +562,22 @@ export function PromptInput({
       return;
     }
     if (item.kind === "new") {
-      onSubmit({ text: "", imageUrls: [], command: "new" });
+      // Reset local state first, then notify parent — the parent changes
+      // staticKey which unmounts this PromptInput, so no setState should
+      // happen after onSubmit to avoid React warnings.
       setBuffer(EMPTY_BUFFER);
       setImageUrls([]);
       setSelectedSkills([]);
       setShowSkillsDropdown(false);
+      onSubmit({ text: "", imageUrls: [], command: "new" });
       return;
     }
     if (item.kind === "resume") {
-      onSubmit({ text: "", imageUrls: [], command: "resume" });
       setBuffer(EMPTY_BUFFER);
       setImageUrls([]);
       setSelectedSkills([]);
       setShowSkillsDropdown(false);
+      onSubmit({ text: "", imageUrls: [], command: "resume" });
       return;
     }
     if (item.kind === "exit") {
