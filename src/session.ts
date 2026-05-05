@@ -1684,7 +1684,7 @@ ${skillMd}
     thinkingEnabled: boolean,
   ): ChatCompletionMessageParam[] {
     return messages
-        .filter((message) => !message.compacted)
+        .filter((message) => !message.compacted && !message.meta?.isStepIndicator)
         .map((message) => {
           const base: ChatCompletionMessageParam = {
             role: message.role,
