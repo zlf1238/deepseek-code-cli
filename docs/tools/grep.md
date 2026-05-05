@@ -1,18 +1,18 @@
 ## Grep
 
-Search file contents using text or regex. Returns file paths, line numbers, and context lines.
+使用文本或正则表达式搜索文件内容。返回文件路径、行号和上下文行。
 
-Usage:
-- The pattern is a text string or basic regex to search for in file contents.
-- Results include matching lines with file path, line number, and context lines (before/after).
-- Matches from different files are separated by `--`.
-- Use `include` to filter by file extension (e.g., `"*.ts"`, `"*.tsx,*.js"`).
-- Use `context` to control how many lines of context are shown around each match (default 2).
-- Use `ignoreCase` for case-insensitive matching.
-- Common directories (node_modules, .git, dist, build, .next, .nuxt) are automatically excluded.
-- Always prefer grep over bash grep/rg for code search — it's safer, faster, and respects project boundaries.
-- Use grep to locate symbols, functions, or patterns before doing a precise read with offset/limit.
-- Combine grep with read for an efficient "search then read" workflow.
+使用方法：
+- pattern 是一个要在文件内容中搜索的文本字符串或基本正则表达式。
+- 结果包括匹配行及其文件路径、行号和上下文行（之前/之后）。
+- 来自不同文件的匹配结果由 `--` 分隔。
+- 使用 `include` 按文件扩展名过滤（例如 `"*.ts"`、`"*.tsx,*.js"`）。
+- 使用 `context` 控制每个匹配前后显示的上下文行数（默认为 2）。
+- 使用 `ignoreCase` 进行不区分大小写的匹配。
+- 常见目录（node_modules、.git、dist、build、.next、.nuxt）会自动排除。
+- 进行代码搜索时，始终优先使用 grep 而不是 bash 的 grep/rg —— 它更安全、更快，且遵循项目边界。
+- 使用 grep 定位符号、函数或模式，然后再使用带有 offset/limit 的 read 进行精确读取。
+- 将 grep 与 read 结合使用，实现高效的"先搜索后读取"工作流。
 
 ```json
 {
@@ -20,24 +20,24 @@ Usage:
   "type": "object",
   "properties": {
     "pattern": {
-      "description": "Text or regex pattern to search for in file contents.",
+      "description": "要在文件内容中搜索的文本或正则表达式模式。",
       "type": "string"
     },
     "path": {
-      "description": "Directory or file path to search in. Defaults to the project root.",
+      "description": "要搜索的目录或文件路径。默认为项目根目录。",
       "type": "string"
     },
     "include": {
-      "description": "File pattern filter (e.g., \"*.ts\", \"*.tsx,*.js\"). Comma-separated.",
+      "description": "文件模式过滤器（例如 "*.ts"、"*.tsx,*.js"）。以逗号分隔。",
       "type": "string"
     },
     "context": {
-      "description": "Number of context lines to show before and after each match. Defaults to 2.",
+      "description": "每个匹配前后显示的上下文行数。默认为 2。",
       "type": "number",
       "default": 2
     },
     "ignoreCase": {
-      "description": "Whether to ignore case when matching. Defaults to false.",
+      "description": "匹配时是否忽略大小写。默认为 false。",
       "type": "boolean",
       "default": false
     }

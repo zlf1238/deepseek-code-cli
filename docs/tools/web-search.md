@@ -1,6 +1,6 @@
 ## WebSearch
 
-Use this tool when you need up-to-date web information before writing code, changing dependencies, or citing external guidance.
+在你需要获取最新的网络信息来编写代码、更改依赖项或引用外部指南时使用此工具。
 
 JSON schema:
 
@@ -10,7 +10,7 @@ JSON schema:
   "properties": {
     "query": {
       "type": "string",
-      "description": "A search query phrased as a clear, specific natural language question or statement that includes key context."
+      "description": "一个以清晰、具体的自然语言问题或陈述形式表达的搜索查询，包含关键上下文。"
     }
   },
   "required": ["query"],
@@ -18,11 +18,11 @@ JSON schema:
 }
 ```
 
-Usage:
-- Do not reduce `query` to space-separated keywords.
+使用方法：
+- 不要将 `query` 缩减为空格分隔的关键词。
 
-Typical use cases:
-- Confirm recent SDK, framework, or API changes
-- Check current compatibility, deprecations, or migration notes
-- Look up active issue tracker discussions or recent regressions
-- Gather cited sources before producing technical guidance
+典型使用场景：
+- 确认最近的 SDK、框架或 API 变更
+- 检查当前的兼容性、弃用说明或迁移指南
+- 查找活跃的问题跟踪讨论或最近的回归
+- 在提供技术指导之前收集已引用的来源

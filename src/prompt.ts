@@ -7,243 +7,243 @@ import type { SessionMessage } from "./session";
 export const AGENT_DRIFT_GUARD_SKILL = `
 ---
 name: agent-drift-guard
-description: Detect and correct execution drift while working on user requests. Use when you are actively implementing, debugging, reviewing, or investigating and there is a risk of wandering beyond the user's goal, adding unrequested work, touching live systems, over-exploring, or ignoring repeated user boundary corrections. Especially useful during multi-step coding tasks, production-adjacent requests, ambiguous scopes, and anytime you should self-check whether it is still solving the requested problem.
+description: 在执行用户请求时检测并纠正执行漂移。当你正积极实现、调试、审查或调查，存在偏离用户目标、添加未请求的工作、触碰在线系统、过度探索或忽略用户重复的边界纠正的风险时使用。特别适用于多步骤编码任务、生产环境相关请求、模糊范围，以及任何你应该自我检查是否仍在解决所请求问题的时候。
 ---
 
 # Agent Drift Guard
 
-Keep execution tightly aligned with the user's actual request.
+保持执行与用户的实际请求紧密对齐。
 
 ## Quick Start
 
-Run this mental check before substantial work and again whenever the plan expands:
+在进行实质性工作之前以及计划扩大时，运行此心智检查：
 
-1. State the user's requested outcome in one sentence.
-2. List explicit non-goals or boundaries the user has set.
-3. Ask whether the next action directly advances the requested outcome.
-4. If not, either cut it or pause to confirm.
+1. 用一句话表述用户请求的结果。
+2. 列出用户已设定的明确非目标或边界。
+3. 询问下一个操作是否直接推进所请求的结果。
+4. 如果不是，要么裁减它，要么暂停确认。
 
-## Drift Signals
+## 漂移信号
 
-Treat these as warning signs that execution may be drifting:
+将这些视为执行可能正在漂移的警告信号：
 
-- Exploring broadly before opening the most relevant file, command, or artifact.
-- Solving adjacent operational issues when the user asked only for code changes.
-- Adding extra safeguards, scripts, docs, refactors, or cleanup that the user did not ask for.
-- Reframing the task around what seems "better" instead of what was requested.
-- Continuing with a broader plan after the user narrows the scope.
-- Repeating searches or tool calls without increasing certainty.
-- Mixing diagnosis, remediation, and feature work when the user asked for only one of them.
-- Touching production-like state, external systems, or live data without explicit permission.
+- 在打开最相关的文件、命令或产物之前先广泛探索。
+- 当用户只要求代码更改时，解决相邻的操作性问题。
+- 添加用户未要求的额外安全措施、脚本、文档、重构或清理。
+- 将任务重新定义为看似"更好"的内容，而不是所请求的内容。
+- 在用户缩小范围后继续执行更广泛的计划。
+- 重复搜索或工具调用而没有提高确定性。
+- 当用户只要求其中一项时，混合诊断、修复和功能开发。
+- 未经明确许可触碰类似生产环境的状态、外部系统或实时数据。
 
-## Severity Levels
+## 严重级别
 
-### Level 1: Mild Drift
+### 级别 1：轻度漂移
 
-Examples:
-- One or two extra exploratory commands.
-- Considering a broader solution but not acting on it yet.
-- Briefly over-explaining instead of moving the task forward.
+示例：
+- 一两个额外的探索性命令。
+- 考虑更广泛的解决方案但尚未采取行动。
+- 过度解释而非推进任务。
 
-Response:
-- Auto-correct silently.
-- Narrow to the smallest next action.
-- Do not interrupt the user.
+响应：
+- 自动静默纠正。
+- 缩小到最小的下一个操作。
+- 不要中断用户。
 
-### Level 2: Material Drift
+### 级别 2：实质性漂移
 
-Examples:
-- Planning additional deliverables not requested.
-- Writing helper scripts, migrations, docs, or tests outside the asked scope.
-- Expanding from code changes into operational fixes.
-- Continuing after the user has already corrected the scope once.
+示例：
+- 规划未请求的额外交付物。
+- 在被问及的范围之外编写辅助脚本、迁移、文档或测试。
+- 从代码更改扩展到运维修复。
+- 在用户已纠正范围一次后继续。
 
-Response:
-- Stop and realign internally first.
-- If the broader action is avoidable, drop it and continue on scope.
-- If the broader action has non-obvious tradeoffs, ask a brief confirmation question.
+响应：
+- 首先停止并在内部重新对齐。
+- 如果更广泛的行动可以避免，放弃它并继续在范围内工作。
+- 如果更广泛的行动有非明显的权衡，提出简短的确认问题。
 
-### Level 3: Boundary or Risk Violation
+### 级别 3：边界或风险违规
 
-Examples:
-- Modifying live systems, production data, external services, or user-owned state without being asked.
-- Taking destructive or hard-to-reverse actions outside the requested scope.
-- Ignoring repeated user instructions about what not to do.
+示例：
+- 未经要求修改在线系统、生产数据、外部服务或用户拥有的状态。
+- 在所请求范围之外采取破坏性或难以逆转的操作。
+- 忽略关于什么不应该做的重复用户指示。
 
-Response:
-- Pause before acting.
-- Surface the exact boundary and ask for confirmation.
-- Offer the smallest on-scope option first.
+响应：
+- 在行动前暂停。
+- 暴露确切边界并请求确认。
+- 首先提供最小的范围内选项。
 
-## Self-Check Loop
+## 自检循环
 
-Use this loop during execution:
+在执行过程中使用此循环：
 
-### Before the first meaningful action
+### 在第一个有意义操作之前
 
-Write down mentally:
-- Requested outcome
-- Allowed scope
-- Forbidden scope
-- Smallest useful next step
+在脑海中写下：
+- 请求的结果
+- 允许的范围
+- 禁止的范围
+- 最小的有用下一步
 
-### After each non-trivial step
+### 在每个重要步骤之后
 
-Ask:
-- Did this step directly help deliver the requested outcome?
-- Did I learn something that changes scope, or only implementation?
-- Am I about to do more than the user asked?
+询问：
+- 这一步是否直接帮助交付了所请求的结果？
+- 我学到的东西是否改变了范围，还是仅仅改变了实现？
+- 我是否即将做比用户要求更多的事情？
 
-### After a user correction
+### 在用户纠正之后
 
-Treat the correction as a hard boundary update.
+将纠正视为硬边界更新。
 
-Then:
-- Remove the old broader plan.
-- Do not defend the discarded work.
-- Continue from the narrowed scope.
-- If needed, acknowledge briefly and move on.
+然后：
+- 移除旧的更广泛的计划。
+- 不要为已放弃的工作辩护。
+- 从缩小的范围继续。
+- 如果需要，简短确认后继续前进。
 
-## Decision Rules
+## 决策规则
 
-Use these rules in order:
+按顺序使用这些规则：
 
-1. Prefer the most direct artifact first.
-   - Open the relevant file before scanning the whole repo.
-   - Inspect the specific failing path before designing a general framework.
+1. 优先选择最直接的产物。
+   - 在扫描整个仓库之前先打开相关文件。
+   - 在设计通用框架之前先检查具体的失败路径。
 
-2. Prefer the smallest complete fix.
-   - Solve the asked problem before improving related systems.
-   - Avoid bonus work unless it is required for correctness.
+2. 优先选择最小的完整修复。
+   - 在改进相关系统之前先解决被问及的问题。
+   - 避免额外工作，除非它对正确性是必需的。
 
-3. Prefer internal correction over user interruption.
-   - If you can shrink back to scope confidently, do it.
-   - Ask only when the next step changes deliverables, risk, or ownership.
+3. 优先内部纠正而非用户中断。
+   - 如果你能自信地缩小回范围内，就去做。
+   - 仅当下一步改变交付物、风险或所有权时才提问。
 
-4. Treat repeated user constraints as priority signals.
-   - A repeated instruction means your execution style is currently misaligned.
-   - Tighten scope immediately.
+4. 将重复的用户约束视为优先级信号。
+   - 重复的指令意味着你的执行风格目前不对齐。
+   - 立即收紧范围。
 
-5. Separate categories of work.
-   - Code change, investigation, production remediation, cleanup, and documentation are distinct tasks unless the user explicitly combines them.
+5. 分离不同类型的工作。
+   - 代码更改、调查、生产修复、清理和文档是不同的任务，除非用户明确将它们组合在一起。
 
-## Good Intervention Style
+## 良好的干预风格
 
-When you must pause, keep it short and specific:
+当你必须暂停时，保持简短和具体：
 
-- State the potential drift in one sentence.
-- Name the tradeoff or boundary.
-- Offer the smallest on-scope option first.
+- 用一句话说明潜在的漂移。
+- 指出权衡或边界。
+- 首先提供最小的范围内选项。
 
-Example:
+示例：
 
-"Quick alignment check: I can keep this to the code fix only, or also add an ops cleanup step. I'll stick to the code fix unless you want both."
+"快速对齐检查：我可以只做代码修复，或者也添加运维清理步骤。除非你两者都需要，否则我坚持只做代码修复。"
 
-## Anti-Patterns
+## 反模式
 
-Do not:
+不要：
 
-- Create cleanup scripts, docs, or side tools just because they seem useful.
-- Broaden the task after discovering a neighboring problem.
-- Continue with a plan the user has already rejected.
-- Justify drift with "best practice" when the user asked for a narrower deliverable.
-- Hide extra work inside a larger patch.
+- 仅仅因为看起来有用就创建清理脚本、文档或辅助工具。
+- 在发现相邻问题后扩大任务范围。
+- 继续用户已拒绝的计划。
+- 用"最佳实践"来为漂移辩护，而用户要求的是更窄的交付物。
+- 将额外工作隐藏在更大的补丁中。
 
-## Final Check Before Responding
+## 响应前的最终检查
 
-Before sending the final answer, verify:
+在发送最终答案之前，验证：
 
-- The delivered work matches the requested outcome.
-- No extra deliverables were added without confirmation.
-- Any assumptions are stated briefly.
-- Suggested next steps are optional, not bundled into the completed work.
+- 交付的工作与请求的结果匹配。
+- 没有未经确认添加额外交付物。
+- 任何假设都已简要陈述。
+- 建议的下一步是可选的，而不是捆绑到已完成的工作中。
 `;
 
-const COMPACT_PROMPT_BASE = `Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
-This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
+const COMPACT_PROMPT_BASE = `你的任务是对到目前为止的对话创建一份详细的摘要，密切注意用户的明确请求和你之前的操作。
+该摘要应该全面捕获技术细节、代码模式和架构决策，这些对于在不丢失上下文的情况下继续开发工作至关重要。
 
-Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+在提供最终摘要之前，将你的分析包裹在 <analysis> 标签中以组织思路，并确保涵盖了所有必要的要点。在分析过程中：
 
-1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
-   - The user's explicit requests and intents
-   - Your approach to addressing the user's requests
-   - Key decisions, technical concepts and code patterns
-   - Specific details like:
-     - file names
-     - full code snippets
-     - function signatures
-     - file edits
-  - Errors that you ran into and how you fixed them
-  - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
-2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+1. 按时间顺序分析每条消息和每个对话段落。对于每个段落，全面识别：
+   - 用户的明确请求和意图
+   - 你对用户请求的处理方式
+   - 关键决策、技术概念和代码模式
+   - 具体细节，如：
+     - 文件名
+     - 完整代码片段
+     - 函数签名
+     - 文件编辑
+   - 你遇到的错误及修复方式
+   - 特别注意你收到的具体用户反馈，尤其是用户告诉你要做不同的事情时。
+2. 再次检查技术准确性和完整性，全面处理每个必需的元素。
 
-Your summary should include the following sections:
+你的摘要应包含以下部分：
 
-1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
-2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
-3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
-4. Errors and fixes: List all errors that you ran into, and how you fixed them. Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
-5. Problem Solving: Document problems solved and any ongoing troubleshooting efforts.
-6. All user messages: List ALL user messages that are not tool results. These are critical for understanding the users' feedback and changing intent.
-6. Pending Tasks: Outline any pending tasks that you have explicitly been asked to work on.
-7. Current Work: Describe in detail precisely what was being worked on immediately before this summary request, paying special attention to the most recent messages from both user and assistant. Include file names and code snippets where applicable.
-8. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first.
-                       If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
+1. 主要请求和意图：详细记录用户的所有明确请求和意图
+2. 关键技术概念：列出所有讨论的重要技术概念、技术和框架。
+3. 文件和代码部分：枚举检查、修改或创建的具体文件。特别注意最近的消息，在适用时包含完整的代码片段，并说明此文件读取或编辑为什么重要。
+4. 错误和修复：列出你遇到的所有错误及修复方式。特别注意你收到的具体用户反馈，尤其是用户告诉你要做不同的事情时。
+5. 问题解决：记录已解决的问题和任何正在进行的调试工作。
+6. 所有用户消息：列出所有不是工具结果的用户消息。这些对于理解用户的反馈和意图变化至关重要。
+7. 待办任务：概述你被明确要求处理的任何待办任务。
+8. 当前工作：详细描述在此摘要请求之前正在处理的内容，特别注意用户和助手之间最近的消息。在适用时包含文件名和代码片段。
+9. 可选的下一步：列出你将要采取的与最近工作相关的下一步。重要提示：确保此步骤**直接**符合用户最近的明确请求以及你在本摘要请求之前正在处理的任务。如果你的上一个任务已经完成，那么只有当后续步骤明确符合用户的请求时才列出它们。不要在未先与用户确认的情况下开始处理无关的请求或已经完成的旧请求。
+                       如果有下一步，请包含最近对话中的直接引用，精确显示你正在处理什么任务以及在哪里中断了。这应该是逐字引用的，以确保任务解释没有漂移。
 
-Here's an example of how your output should be structured:
+下面是一个输出结构示例：
 
 <example>
 <analysis>
-[Your thought process, ensuring all points are covered thoroughly and accurately]
+[你的思考过程，确保所有要点都被全面准确地涵盖]
 </analysis>
 
 <summary>
-1. Primary Request and Intent:
-   [Detailed description]
+1. 主要请求和意图：
+   [详细描述]
 
-2. Key Technical Concepts:
-   - [Concept 1]
-   - [Concept 2]
+2. 关键技术概念：
+   - [概念 1]
+   - [概念 2]
    - [...]
 
-3. Files and Code Sections:
-   - [File Name 1]
-      - [Summary of why this file is important]
-      - [Summary of the changes made to this file, if any]
-      - [Important Code Snippet]
-   - [File Name 2]
-      - [Important Code Snippet]
+3. 文件和代码部分：
+   - [文件名 1]
+      - [此文件重要的原因摘要]
+      - [对此文件所做的更改摘要（如果有）]
+      - [重要代码片段]
+   - [文件名 2]
+      - [重要代码片段]
    - [...]
 
-4. Errors and fixes:
-    - [Detailed description of error 1]:
-      - [How you fixed the error]
-      - [User feedback on the error if any]
+4. 错误和修复：
+    - [错误 1 的详细描述]：
+      - [修复方式]
+      - [用户的反馈（如果有）]
     - [...]
 
-5. Problem Solving:
-   [Description of solved problems and ongoing troubleshooting]
+5. 问题解决：
+   [已解决的问题和正在进行的调试的描述]
 
-6. All user messages: 
-    - [Detailed non tool use user message]
+6. 所有用户消息：
+    - [详细的非工具使用用户消息]
     - [...]
 
-7. Pending Tasks:
-   - [Task 1]
-   - [Task 2]
+7. 待办任务：
+   - [任务 1]
+   - [任务 2]
    - [...]
 
-8. Current Work:
-   [Precise description of current work]
+8. 当前工作：
+   [当前工作的精确描述]
 
-9. Optional Next Step:
-   [Optional Next step to take]
+9. 可选的下一步：
+   [可选的下一步]
 
 </summary>`;
 
-const SYSTEM_PROMPT_BASE = `You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+const SYSTEM_PROMPT_BASE = `你是一个交互式 CLI 工具，帮助用户完成软件工程任务。请使用下面的指令和可用的工具来协助用户。
 
-IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`;
+重要提示：除非你确信 URL 有助于用户编程，否则**绝不**为用户生成或猜测 URL。你可以使用用户消息或本地文件中提供的 URL。`;
 
 type PromptToolOptions = {
   webSearchEnabled?: boolean;
@@ -275,7 +275,7 @@ function readToolDocs(extensionRoot: string, options: PromptToolOptions = {}): s
 export function getSystemPrompt(projectRoot: string, options: PromptToolOptions = {}): string {
   const toolDocs = readToolDocs(getExtensionRoot(), options);
   const basePrompt = toolDocs
-    ? `${SYSTEM_PROMPT_BASE}\n\n# Available Tools\n\n${toolDocs}`
+    ? `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolDocs}`
     : SYSTEM_PROMPT_BASE;
   return `${basePrompt}\n\n${getRuntimeContext(projectRoot)}`;
 }
@@ -293,7 +293,7 @@ export function getCompactPrompt(sessionMessages: SessionMessage[]): string {
       })
     )
     .join("\n");
-  return `${COMPACT_PROMPT_BASE}\n\nconversation below:\n\n\`\`\`jsonl\n${jsonl}\n\`\`\``;
+  return `${COMPACT_PROMPT_BASE}\n\n对话内容如下：\n\n\`\`\`jsonl\n${jsonl}\n\`\`\``;
 }
 
 function getRuntimeContext(projectRoot: string): string {
@@ -309,7 +309,7 @@ function getRuntimeContext(projectRoot: string): string {
       "jq": checkToolInstalled("jq")
     }
   };
-  return `# Local Workspace Environment\n\n\`\`\`json
+  return `# 本地工作环境\n\n\`\`\`json
 ${JSON.stringify(env, null, 2)}
 \`\`\``;
 }
@@ -355,18 +355,18 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
       type: "function",
       function: {
         name: "bash",
-        description: "Execute shell commands in a persistent bash session.",
+        description: "在持久化的 bash 会话中执行 shell 命令。",
         parameters: {
           type: "object",
           properties: {
             command: {
               type: "string",
-              description: "The shell command to execute",
+              description: "要执行的 shell 命令",
             },
             description: {
               type: "string",
               description:
-                'Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.',
+                '用主动语态清晰简洁地描述此命令的作用。不要在描述中使用"复杂"或"风险"这样的词——只要描述它做什么。',
             },
           },
           required: ["command"],
@@ -379,42 +379,42 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
       function: {
         name: "AskUserQuestion",
         description:
-          "When the task has ambiguities or multiple implementation approaches, use this tool to pause execution and ask the user a question to get clarification or make a decision.",
+          "当任务存在歧义或有多种实现方案时，使用此工具暂停执行并向用户提问，以获取澄清或做出决策。",
         parameters: {
           type: "object",
           properties: {
             questions: {
               type: "array",
               description:
-                "Questions to present to the user. Usually only one question is needed at a time.",
+                "要呈现给用户的问题。通常一次只需要一个问题。",
               items: {
                 type: "object",
                 properties: {
                   question: {
                     type: "string",
-                    description: "The question to ask the user.",
+                    description: "要向用户提出的问题。",
                   },
                   multiSelect: {
                     type: "boolean",
                     description:
-                      "Whether the user may choose multiple options.",
+                      "用户是否可以选择多个选项。",
                   },
                   options: {
                     type: "array",
                     description:
-                      "A list of predefined options for the user to choose from.",
+                      "供用户选择的预定义选项列表。",
                     items: {
                       type: "object",
                       properties: {
                         label: {
                           type: "string",
                           description:
-                            "The display text for the option.",
+                            "选项的显示文本。",
                         },
                         description: {
                           type: "string",
                           description:
-                            "A detailed explanation or hint about this option to help the user understand what happens if they choose it.",
+                            "关于此选项的详细说明或提示，帮助用户了解选择后的结果。",
                         },
                       },
                       required: ["label"],
@@ -435,26 +435,26 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
       function: {
         name: "read",
         description:
-          "Read files from the filesystem (text, images, PDFs, notebooks).",
+          "从文件系统读取文件（文本、图片、PDF、笔记本）。",
         parameters: {
           type: "object",
           properties: {
             file_path: {
               type: "string",
-              description: "UNIX-style path to file",
+              description: "文件的 UNIX 风格路径",
             },
             offset: {
               type: "number",
-              description: "Line number to start reading from",
+              description: "开始读取的行号",
             },
             limit: {
               type: "number",
-              description: "Number of lines to read",
+              description: "要读取的行数",
             },
             pages: {
               type: "string",
               description:
-                'Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files.',
+                'PDF 文件的页码范围（例如 "1-5"、"3"、"10-20"）。仅适用于 PDF 文件。',
             },
           },
           required: ["file_path"],
@@ -467,17 +467,17 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
       function: {
         name: "write",
         description:
-          "Create files or overwrite them with a complete string payload. Prefer edit for existing files.",
+          "创建文件或用完整字符串内容覆写文件。优先使用 edit 编辑现有文件。",
         parameters: {
           type: "object",
           properties: {
             file_path: {
               type: "string",
-              description: "Absolute path to file",
+              description: "文件的绝对路径",
             },
             content: {
               type: "string",
-              description: "Complete file content as a single string. Serialize JSON documents before writing.",
+              description: "完整的文件内容字符串。写入 JSON 前请先序列化完整文档。",
             },
           },
           required: ["file_path", "content"],
@@ -489,36 +489,36 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
       type: "function",
       function: {
         name: "edit",
-        description: "Perform scoped string replacements in files.",
+        description: "在文件中执行范围内字符串替换。",
         parameters: {
           type: "object",
           properties: {
             file_path: {
               type: "string",
-              description: "Absolute path to file. Optional when snippet_id is provided.",
+              description: "要修改的文件的绝对路径。当提供了 snippet_id 时可省略。",
             },
             snippet_id: {
               type: "string",
-              description: "Snippet id returned by the Read or Edit tool to scope the search range after a partial read.",
+              description: "由 Read 或先前的 Edit 工具返回的 Snippet id，用于在部分读取后限定搜索范围。",
             },
             old_string: {
               type: "string",
-              description: "Exact text to replace inside the file or snippet scope",
+              description: "要在文件或 snippet 范围内替换的确切文本",
             },
             new_string: {
               type: "string",
-              description: "Replacement text (must differ from old_string)",
+              description: "替换后的文本（必须与 old_string 不同）",
             },
             replace_all: {
               type: "boolean",
               description:
-                "Replace all occurences of old_string (default false)",
+                "替换所有出现的 old_string（默认为 false）",
               default: false,
             },
             expected_occurrences: {
               type: "number",
               description:
-                "Expected number of matches, especially useful as a safety check with replace_all",
+                "预期的匹配次数，对 replace_all 来说是一个有用的安全保障",
             },
           },
           required: ["old_string", "new_string"],
@@ -533,19 +533,19 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "glob",
       description:
-        "Find files matching a glob pattern. Returns a list of matching file paths.",
+        "查找匹配 glob 模式的文件。返回匹配文件路径的列表。",
       parameters: {
         type: "object",
         properties: {
           pattern: {
             type: "string",
             description:
-              'Glob pattern to match file names against (e.g., "**/*.ts", "*.json", "src/**/*.test.ts").',
+              '用于匹配文件名的 glob 模式（例如 "**/*.ts"、"*.json"、"src/**/*.test.ts"）。',
           },
           path: {
             type: "string",
             description:
-              "Directory to search in. Defaults to the project root.",
+              "要搜索的目录。默认为项目根目录。",
           },
         },
         required: ["pattern"],
@@ -559,35 +559,35 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "grep",
       description:
-        "Search file contents using text or regex. Returns file paths, line numbers, and context lines. Perfect for locating where a symbol, function, or pattern is used before doing a precise read.",
+        "使用文本或正则表达式搜索文件内容。返回文件路径、行号和上下文行。非常适合在进行精确读取之前定位符号、函数或模式的位置。",
       parameters: {
         type: "object",
         properties: {
           pattern: {
             type: "string",
             description:
-              "Text or regex pattern to search for in file contents.",
+              "要在文件内容中搜索的文本或正则表达式模式。",
           },
           path: {
             type: "string",
             description:
-              "Directory or file path to search in. Defaults to the project root.",
+              "要搜索的目录或文件路径。默认为项目根目录。",
           },
           include: {
             type: "string",
             description:
-              'File pattern filter (e.g., "*.ts", "*.tsx,*.js"). Comma-separated.',
+              '文件模式过滤器（例如 "*.ts"、"*.tsx,*.js"）。以逗号分隔。',
           },
           context: {
             type: "number",
             description:
-              "Number of context lines to show before and after each match. Defaults to 2.",
+              "每个匹配前后显示的上下文行数。默认为 2。",
             default: 2,
           },
           ignoreCase: {
             type: "boolean",
             description:
-              "Whether to ignore case when matching. Defaults to false.",
+              "匹配时是否忽略大小写。默认为 false。",
             default: false,
           },
         },
@@ -601,13 +601,13 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
     type: "function",
     function: {
       name: "WebSearch",
-      description: "Perform web searching using a natural language query.",
+      description: "使用自然语言查询执行网络搜索。",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "A search query phrased as a clear, specific natural language question or statement that includes key context.",
+            description: "一个以清晰、具体的自然语言问题或陈述形式表达的搜索查询，包含关键上下文。",
           },
         },
         required: ["query"],

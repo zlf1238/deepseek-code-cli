@@ -1,12 +1,12 @@
 ## AskUserQuestion
 
-Use this tool when you need to ask the user questions during execution. This allows you to:
-1. Gather user preferences or requirements
-2. Clarify ambiguous instructions
-3. Get decisions on implementation choices as you work
-4. Offer choices to the user about what direction to take.
+当你在执行过程中需要向用户提问时使用此工具。它允许你：
+1. 收集用户偏好或需求
+2. 澄清模棱两可的指令
+3. 在实现过程中获取决策意见
+4. 为用户提供关于下一步方向的选择。
 
-Usage notes:
-- Users will always be able to select "Other" to provide custom text input
-- Use multiSelect: true to allow multiple answers to be selected for a question
-- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
+使用说明：
+- 用户总是可以选择"其他"来提供自定义文本输入
+- 使用 multiSelect: true 允许为一个问题选择多个答案
+- 如果你推荐某个特定选项，将其放在列表的第一个，并在标签末尾添加"（推荐）"

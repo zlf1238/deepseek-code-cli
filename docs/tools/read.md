@@ -1,22 +1,22 @@
 ## Read
 
-Reads a file from the local filesystem. You can access any file directly by using this tool.
-Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+从本地文件系统读取文件。你可以使用此工具直接访问任何文件。
+假设此工具能够读取机器上的所有文件。如果用户提供了文件路径，假设该路径有效。读取一个不存在的文件是可以的；会返回一个错误。
 
-Usage:
-- The file_path parameter must be a UNIX-style file path.
-- By default, it reads up to 2000 lines starting from the beginning of the file
-- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
-- Any lines longer than 2000 characters will be truncated
-- Results are returned using cat -n format, with line numbers starting at 1
-- Text reads return a snippet id in metadata. You can pass that snippet id to the Edit tool to constrain replacements to just that read range.
-- This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Deepseek is a multimodal LLM.
-- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.
-- This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
-- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
-- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
-- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
-- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
+使用方法：
+- file_path 参数必须是 UNIX 风格的文件路径。
+- 默认情况下，从文件开头读取最多 2000 行。
+- 你可以选择指定行偏移量和限制行数（对于长文件特别方便），但建议不提供这些参数以读取整个文件。
+- 超过 2000 个字符的行将被截断。
+- 结果使用 `cat -n` 格式返回，行号从 1 开始。
+- 文本读取会在元数据中返回一个 snippet id。你可以将该 snippet id 传递给 Edit 工具，将替换限制在该读取范围内。
+- 此工具允许你读取图像（如 PNG、JPG 等）。读取图像文件时，由于 Deepseek 是多模态 LLM，内容会以视觉方式呈现。
+- 此工具可以读取 PDF 文件（.pdf）。对于大 PDF（超过 10 页），**必须**提供 pages 参数来指定具体的页码范围（例如 pages："1-5"）。不提供 pages 参数读取大 PDF 会失败。每次请求最多 20 页。
+- 此工具可以读取 Jupyter 笔记本（.ipynb 文件），并返回所有单元格及其输出，结合代码、文本和可视化内容。
+- 此工具只能读取文件，不能读取目录。如果要读取目录，请通过 Bash 工具使用 ls 命令。
+- 你可以在单次响应中调用多个工具。总是优先推测性地并行读取多个可能有用的文件。
+- 你经常会被要求读取截图。如果用户提供了截图路径，**始终**使用此工具查看该路径下的文件。此工具适用于所有临时文件路径。
+- 如果你读取了一个存在但内容为空的文件，你会收到一个系统提醒警告来代替文件内容。
 
 ```json
 {
@@ -24,19 +24,19 @@ Usage:
   "type": "object",
   "properties": {
     "file_path": {
-      "description": "The absolute path to the file to read",
+      "description": "要读取的文件的 UNIX 风格路径",
       "type": "string"
     },
     "offset": {
-      "description": "The line number to start reading from. Only provide if the file is too large to read at once",
+      "description": "开始读取的行号。仅在文件太大无法一次读取时提供",
       "type": "number"
     },
     "limit": {
-      "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+      "description": "要读取的行数。仅在文件太大无法一次读取时提供。",
       "type": "number"
     },
     "pages": {
-      "description": "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to PDF files. Maximum 20 pages per request.",
+      "description": "PDF 文件的页码范围（例如 "1-5"、"3"、"10-20"）。仅适用于 PDF 文件。每次请求最多 20 页。",
       "type": "string"
     }
   },
