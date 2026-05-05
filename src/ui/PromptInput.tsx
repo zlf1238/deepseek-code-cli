@@ -134,8 +134,8 @@ export function PromptInput({
     : busy
       ? loadingText && loadingText.trim()
         ? `${loadingText} · model: ${formatModelDisplay(activeModel)}`
-        : `esc to interrupt · ctrl+c to cancel input · model: ${formatModelDisplay(activeModel)}`
-      : `enter send · shift+enter newline · ctrl+v image · / commands · ctrl+d exit · model: ${formatModelDisplay(activeModel)}`;
+        : `Esc: 中断响应 · Ctrl+C: 取消输入 · model: ${formatModelDisplay(activeModel)}`
+      : `Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)}`;
   const cursorPlacement = useMemo(
     () => getPromptCursorPlacement(buffer, screenWidth, promptPrefix, footerText),
     [buffer, footerText, promptPrefix, screenWidth]
@@ -239,7 +239,7 @@ export function PromptInput({
       }
       if (busy) {
         onInterrupt();
-        setStatusMessage("Interrupting…");
+        setStatusMessage("正在中断……");
       }
       return;
     }
@@ -257,18 +257,18 @@ export function PromptInput({
       }
       lastCtrlDAt.current = now;
       setPendingExit(true);
-      setStatusMessage("press ctrl+d again to exit");
+      setStatusMessage("再次按 Ctrl+D 确认退出");
       return;
     }
 
     if (key.ctrl && (input === "c" || input === "C")) {
       if (busy) {
         onInterrupt();
-        setStatusMessage("Interrupting…");
+        setStatusMessage("正在中断……");
       } else if (!isEmpty(buffer)) {
         setBuffer(EMPTY_BUFFER);
       } else {
-        setStatusMessage("press ctrl+d to exit");
+        setStatusMessage("按 Ctrl+D 退出程序");
       }
       return;
     }
@@ -316,7 +316,7 @@ export function PromptInput({
         const modelName = modelList[modelDropdownIndex];
         if (modelName) {
           onModelChange(modelName);
-          setStatusMessage(`Switched to ${modelName}`);
+          setStatusMessage(`已切换到 ${modelName}`);
           setShowModelDropdown(false);
         }
         return;
@@ -331,9 +331,9 @@ export function PromptInput({
       const image = readClipboardImage();
       if (image) {
         setImageUrls((prev) => [...prev, image.dataUrl]);
-        setStatusMessage("Attached image from clipboard");
+        setStatusMessage("已从剪贴板粘贴图片");
       } else {
-        setStatusMessage("No image found in clipboard");
+        setStatusMessage("剪贴板中未找到图片");
       }
       return;
     }
@@ -341,9 +341,9 @@ export function PromptInput({
     if (isClearImageAttachmentsShortcut(input, key)) {
       if (imageUrls.length > 0) {
         setImageUrls([]);
-        setStatusMessage("Cleared attached images");
+        setStatusMessage("已清除所有已粘贴的图片");
       } else {
-        setStatusMessage("No attached images to clear");
+        setStatusMessage("当前没有已粘贴的图片");
       }
       return;
     }
@@ -352,7 +352,7 @@ export function PromptInput({
     const isPlainReturn = key.return && !key.shift && !key.meta;
 
     if (busy && (isPlainReturn || (showMenu && key.tab))) {
-      setStatusMessage("wait for the current response or press esc to interrupt");
+      setStatusMessage("请等待当前响应完成，或按 Esc 中断");
       return;
     }
 
@@ -540,7 +540,7 @@ export function PromptInput({
 
   function handleSlashSelection(item: SlashCommandItem): void {
     if (busy && item.kind !== "exit") {
-      setStatusMessage("wait for the current response or press esc to interrupt");
+      setStatusMessage("请等待当前响应完成，或按 Esc 中断");
       return;
     }
 
@@ -588,7 +588,7 @@ export function PromptInput({
 
   function submitCurrentBuffer(): void {
     if (busy) {
-      setStatusMessage("wait for the current response or press esc to interrupt");
+      setStatusMessage("请等待当前响应完成，或按 Esc 中断");
       return;
     }
 
@@ -647,14 +647,14 @@ export function PromptInput({
       {selectedSkills.length > 0 ? (
         <Box>
           <Text color="magenta" wrap="truncate-end">{formatSelectedSkillsStatus(selectedSkills)}</Text>
-          <Text dimColor> (use /skills to edit)</Text>
+          <Text dimColor> (使用 /skills 编辑)</Text>
         </Box>
       ) : null}
       {showSkillsDropdown ? (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="magenta" bold>Select Skills</Text>
+          <Text color="magenta" bold>选择技能</Text>
           {skills.length === 0 ? (
-            <Text dimColor>No skills found</Text>
+            <Text dimColor>未找到可用技能</Text>
           ) : (
             visibleSkills.map((skill, idx) => {
               const skillIndex = visibleSkillStart + idx;
@@ -675,14 +675,14 @@ export function PromptInput({
           {visibleSkillStart + visibleSkills.length < skills.length ? (
             <Text dimColor>… {skills.length - visibleSkillStart - visibleSkills.length} more</Text>
           ) : null}
-          <Text dimColor>space toggle · enter toggle · esc close</Text>
+          <Text dimColor>空格: 切换选择 · Enter: 切换选择 · Esc: 关闭</Text>
         </Box>
       ) : null}
       {showModelDropdown ? (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="cyan" bold>Switch Model</Text>
+          <Text color="cyan" bold>切换模型</Text>
           {modelList.length === 0 ? (
-            <Text dimColor>No models configured</Text>
+            <Text dimColor>未配置任何模型</Text>
           ) : (
             modelList.map((name, idx) => {
               const active = idx === modelDropdownIndex;
@@ -694,12 +694,12 @@ export function PromptInput({
                   {isCurrent ? "●" : "○"}{" "}
                   <Text bold>{name}</Text>
                   {provider ? <Text dimColor>{`  ${provider}`}</Text> : null}
-                  {isCurrent ? <Text color="green">  (active)</Text> : null}
+                  {isCurrent ? <Text color="green">  (当前)</Text> : null}
                 </Text>
               );
             })
           )}
-          <Text dimColor>enter/space select · esc close</Text>
+          <Text dimColor>Enter/空格: 选择 · Esc: 关闭</Text>
         </Box>
       ) : null}
       {showMenu ? (
@@ -727,7 +727,7 @@ export function PromptInput({
   );
 }
 
-export const IMAGE_ATTACHMENT_CLEAR_HINT = "ctrl+x clear images";
+export const IMAGE_ATTACHMENT_CLEAR_HINT = "Ctrl+X 清除图片";
 
 export function formatImageAttachmentStatus(count: number): string {
   if (count <= 0) {

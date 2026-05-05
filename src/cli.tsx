@@ -37,7 +37,7 @@ if (args.includes("--help") || args.includes("-h")) {
       "  esc              Interrupt the current model turn",
       "  /                Open the skills/commands menu",
       "  /new             Start a fresh conversation",
-      "  /resume          Pick a previous conversation to continue",
+      "  /resume          选择一个历史会话继续对话",
       "  /exit            Quit",
       "  ctrl+d twice     Quit"
     ].join("\n") + "\n"
