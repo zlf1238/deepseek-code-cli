@@ -7,7 +7,7 @@ import type { ChatCompletionMessageParam, ChatCompletionContentPart } from "open
 import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
 import { getContextWindowCapacity, selectModelForIteration } from "./model-capabilities";
-import { getCompactPrompt, getSystemPrompt, getTools, AGENT_DRIFT_GUARD_SKILL } from "./prompt";
+import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage, AGENT_DRIFT_GUARD_SKILL } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 
 const MAX_SESSION_ENTRIES = 50;
@@ -862,6 +862,7 @@ ${skillMd}
       let currentThinkingEnabled = primary.thinkingEnabled;
       let currentBaseURL = primary.baseURL;
       let currentReasoningEffort = primary.reasoningEffort;
+      let wasAutoSwitched = false;  // pro→flash 自动切换标记
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.isInterrupted(sessionId)) {
@@ -878,6 +879,12 @@ ${skillMd}
             currentThinkingEnabled = next.thinkingEnabled;
             currentBaseURL = next.baseURL ?? primary.baseURL;
             currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
+
+            // 自动切换模型时注入适配提示，告知 AI 角色和工具变更
+            const flashSwitchMessage = this.buildSystemMessage(sessionId, getFlashAutoSwitchMessage());
+            this.appendSessionMessage(sessionId, flashSwitchMessage);
+            this.onAssistantMessage(flashSwitchMessage, false);
+            wasAutoSwitched = true;
           }
           // If next client is null (e.g. flash not configured), keep current
         }
@@ -926,7 +933,7 @@ ${skillMd}
           {
             model: currentModel,
             messages,
-            tools: getTools(this.getPromptToolOptions(currentModel)),
+            tools: getTools(this.getPromptToolOptions(currentModel, wasAutoSwitched)),
             ...thinkingOptions
           },
           { signal: sessionController.signal },
@@ -1104,10 +1111,11 @@ ${skillMd}
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(model?: string): { webSearchEnabled: boolean; model?: string } {
+  private getPromptToolOptions(model?: string, flashAutoSwitch?: boolean): { webSearchEnabled: boolean; model?: string; flashAutoSwitch?: boolean } {
     return {
       webSearchEnabled: true,
-      model
+      model,
+      flashAutoSwitch
     };
   }
 

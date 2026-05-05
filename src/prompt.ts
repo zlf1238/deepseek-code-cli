@@ -261,6 +261,8 @@ type PromptToolOptions = {
   webSearchEnabled?: boolean;
   /** 为 flash 模型时返回精简版提示词和工具 */
   model?: string;
+  /** true = 代码内自动切换（用精简版），false/省略 = 手动指定（用完整版） */
+  flashAutoSwitch?: boolean;
 };
 
 const FLASH_TOOL_NAMES = new Set(["read", "write", "edit", "glob", "grep"]);
@@ -285,8 +287,8 @@ function readToolDocs(extensionRoot: string, options: PromptToolOptions = {}): s
     })
     .filter((content) => content.length > 0);
 
-  // Flash 模型只保留文件操作工具的文档
-  if (options.model === "deepseek-v4-flash") {
+  // Flash 模型在自动切时只保留文件操作工具的文档
+  if (options.model === "deepseek-v4-flash" && options.flashAutoSwitch) {
     return docs
       .filter((doc) => {
         const nameMatch = doc.match(/^##\s+(\w+)/m);
@@ -299,8 +301,9 @@ function readToolDocs(extensionRoot: string, options: PromptToolOptions = {}): s
 }
 
 export function getSystemPrompt(projectRoot: string, options: PromptToolOptions = {}): string {
-  const isFlash = options.model === "deepseek-v4-flash";
-  const systemBase = isFlash ? SYSTEM_PROMPT_FLASH : SYSTEM_PROMPT_BASE;
+  // flashAutoSwitch=true 时用精简版提示词（自动切换优化），否则用完整版
+  const isFlashAutoSwitch = options.model === "deepseek-v4-flash" && options.flashAutoSwitch;
+  const systemBase = isFlashAutoSwitch ? SYSTEM_PROMPT_FLASH : SYSTEM_PROMPT_BASE;
   const toolDocs = readToolDocs(getExtensionRoot(), options);
   const basePrompt = toolDocs
     ? `${systemBase}\n\n# 可用工具\n\n${toolDocs}`
@@ -646,10 +649,22 @@ export function getTools(options: PromptToolOptions = {}): ToolDefinition[] {
     },
   });
 
-  // Flash 模型只暴露文件操作工具
-  if (isFlash) {
+  // Flash 模型在自动切换时只暴露文件操作工具
+  if (isFlash && options.flashAutoSwitch) {
     return tools.filter((tool) => FLASH_TOOL_NAMES.has(tool.function.name));
   }
 
   return tools;
+}
+
+/**
+ * 当代码内自动从 pro 切换到 flash 时，注入此系统消息告知 AI 角色变更。
+ * 此时 tools 已切换到精简版（仅 5 个文件工具），thinking 已关闭。
+ */
+export function getFlashAutoSwitchMessage(): string {
+  return `[系统已自动切换模型]
+
+当前模型已切换为 deepseek-v4-flash（快速模式）。
+可用工具：read、write、edit、glob、grep。
+不启用深度思考。不需要分析规划，直接执行用户请求。`;
 }
