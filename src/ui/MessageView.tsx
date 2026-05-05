@@ -60,6 +60,18 @@ export function MessageView({ message, collapsed }: Props): React.ReactElement |
   }
 
   if (message.role === "tool") {
+    // 步骤指示器（隐藏执行结果时显示的精简步骤描述）
+    if (message.meta?.isStepIndicator) {
+      const stepDesc = typeof message.meta.stepDescription === "string"
+        ? message.meta.stepDescription
+        : "正在执行...";
+      return (
+        <Box marginY={0}>
+          <Text dimColor>{`  ● ${stepDesc}`}</Text>
+        </Box>
+      );
+    }
+
     const summary = buildToolSummary(message);
     const diffLines = getToolDiffPreviewLines(summary);
     return (

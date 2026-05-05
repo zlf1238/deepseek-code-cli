@@ -116,6 +116,9 @@ export type MessageMeta = {
   asThinking?: boolean;
   isSummary?: boolean;
   skill?: SkillInfo;
+  /** 步骤指示器，在隐藏工具执行结果时显示精简步骤描述 */
+  isStepIndicator?: boolean;
+  stepDescription?: string;
 };
 
 export type SessionMessage = {
@@ -1497,7 +1500,9 @@ ${skillMd}
     sessionId: string,
     toolCallId: string,
     content: string,
-    toolFunction: unknown | null
+    toolFunction: unknown | null,
+    /** true = 隐藏工具执行结果（仅用于步骤模式） */
+    hideResult?: boolean
   ): SessionMessage {
     const now = new Date().toISOString();
     const paramsMd = this.buildToolParamsSnippet(toolFunction);
@@ -1511,7 +1516,7 @@ ${skillMd}
       contentParams: null,
       messageParams: { tool_call_id: toolCallId },
       compacted: false,
-      visible: !isInvisibleExecution,
+      visible: hideResult ? false : !isInvisibleExecution,
       createTime: now,
       updateTime: now,
       meta: {
@@ -1522,44 +1527,148 @@ ${skillMd}
     };
   }
 
+  /** 从 tool call 参数生成人类可读的步骤描述 */
+  private getStepDescription(toolFunction: unknown): string {
+    if (!toolFunction || typeof toolFunction !== "object") {
+      return "正在执行...";
+    }
+    const name = typeof (toolFunction as { name?: unknown }).name === "string"
+      ? (toolFunction as { name: string }).name
+      : "";
+    const rawArgs = typeof (toolFunction as { arguments?: unknown }).arguments === "string"
+      ? (toolFunction as { arguments: string }).arguments
+      : "";
+    let args: Record<string, unknown> = {};
+    try {
+      args = rawArgs ? JSON.parse(rawArgs) : {};
+    } catch { /* ignore */ }
+
+    const firstValue = (keys: string[]): string => {
+      for (const key of keys) {
+        const v = args[key];
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
+      return "";
+    };
+
+    switch (name) {
+      case "read":
+        return `正在读取文件  ${firstValue(["file_path"]) || ""}`;
+      case "write":
+        return `正在创建文件  ${firstValue(["file_path"]) || ""}`;
+      case "edit":
+        return `正在修改文件  ${firstValue(["file_path"]) || ""}`;
+      case "bash":
+        return `正在执行命令  ${firstValue(["command", "description"]) || ""}`;
+      case "glob":
+        return `正在搜索文件  ${firstValue(["pattern"]) || ""}`;
+      case "grep":
+        return `正在搜索内容  ${firstValue(["pattern"]) || ""}`;
+      case "WebSearch":
+        return `正在搜索网络  ${firstValue(["query"]) || ""}`;
+      case "AskUserQuestion":
+        return `正在向用户提问`;
+      default:
+        return name ? `正在执行 ${name}` : "正在执行...";
+    }
+  }
+
+  /** 构建步骤指示器消息（在执行工具调用前显示） */
+  private buildStepIndicatorMessage(sessionId: string, stepDescription: string): SessionMessage {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(),
+      sessionId,
+      role: "tool",
+      content: "",
+      contentParams: null,
+      messageParams: null,
+      compacted: false,
+      visible: true,
+      createTime: now,
+      updateTime: now,
+      meta: {
+        isStepIndicator: true,
+        stepDescription
+      } as Record<string, unknown>
+    };
+  }
+
   private async appendToolMessages(
     sessionId: string,
     toolCalls: unknown[]
   ): Promise<{ waitingForUser: boolean }> {
-    const toolExecutions = await this.toolExecutor.executeToolCalls(sessionId, toolCalls, {
-      onProcessStart: (pid, command) => this.addSessionProcess(sessionId, pid, command),
-      onProcessExit: (pid) => this.removeSessionProcess(sessionId, pid),
-      shouldStop: () => this.isInterrupted(sessionId)
-    });
-    if (this.isInterrupted(sessionId)) {
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
       return { waitingForUser: false };
     }
+
+    // 从原始 toolCalls 中提取函数信息
+    const getToolFunc = (toolCallId: string): unknown | null => {
+      for (const tc of toolCalls) {
+        if (!tc || typeof tc !== "object") continue;
+        const record = tc as { id?: unknown; function?: unknown };
+        if (record.id === toolCallId) return record.function ?? null;
+      }
+      return null;
+    };
+
+    const getName = (tc: unknown): string | null => {
+      if (!tc || typeof tc !== "object") return null;
+      const func = (tc as { function?: { name?: unknown } }).function;
+      if (!func || typeof func !== "object") return null;
+      return typeof func.name === "string" && func.name ? func.name : null;
+    };
+
     let waitingForUser = false;
     const followUpMessages: SessionMessage[] = [];
-    for (const execution of toolExecutions) {
+
+    for (const rawTc of toolCalls) {
+      if (!rawTc || typeof rawTc !== "object") continue;
+      const tcId = typeof (rawTc as { id?: unknown }).id === "string"
+        ? (rawTc as { id: string }).id
+        : "";
+
+      // 1. 步骤指示器（AskUserQuestion 除外）
+      const isAskUser = getName(rawTc) === "AskUserQuestion";
+      if (!isAskUser) {
+        const toolFunction = getToolFunc(tcId);
+        const stepDesc = this.getStepDescription(toolFunction);
+        const stepMessage = this.buildStepIndicatorMessage(sessionId, stepDesc);
+        this.appendSessionMessage(sessionId, stepMessage);
+        this.onAssistantMessage(stepMessage, true);
+      }
+
+      // 2. 执行这一个 tool call
+      const [execution] = await this.toolExecutor.executeToolCalls(sessionId, [rawTc], {
+        onProcessStart: (pid, command) => this.addSessionProcess(sessionId, pid, command),
+        onProcessExit: (pid) => this.removeSessionProcess(sessionId, pid),
+        shouldStop: () => this.isInterrupted(sessionId)
+      });
+
+      if (this.isInterrupted(sessionId)) {
+        break;
+      }
+
       if (execution.result.awaitUserResponse === true) {
         waitingForUser = true;
       }
-      const toolFunction = this.findToolFunction(toolCalls, execution.toolCallId);
-      const toolMessage = this.buildToolMessage(
+
+      // 3. 追加工具结果（AskUserQuestion 正常显示，其余隐藏）
+      const toolFunction = getToolFunc(execution.toolCallId);
+      const toolMsg = this.buildToolMessage(
         sessionId,
         execution.toolCallId,
         execution.content,
-        toolFunction
+        toolFunction,
+        !isAskUser  // hideResult
       );
-      this.appendSessionMessage(sessionId, toolMessage);
-      this.onAssistantMessage(toolMessage, true);
+      this.appendSessionMessage(sessionId, toolMsg);
+      this.onAssistantMessage(toolMsg, true);
 
       for (const followUpMessage of execution.result.followUpMessages ?? []) {
-        if (followUpMessage.role !== "system") {
-          continue;
-        }
+        if (followUpMessage.role !== "system") continue;
         followUpMessages.push(
-          this.buildSystemMessage(
-            sessionId,
-            followUpMessage.content,
-            followUpMessage.contentParams ?? null
-          )
+          this.buildSystemMessage(sessionId, followUpMessage.content, followUpMessage.contentParams ?? null)
         );
       }
     }
