@@ -135,7 +135,7 @@ export function PromptInput({
       ? loadingText && loadingText.trim()
         ? `${loadingText} · model: ${formatModelDisplay(activeModel)}`
         : `Esc: 中断响应 · Ctrl+C: 取消输入 · model: ${formatModelDisplay(activeModel)}`
-      : `Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)}`;
+      : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)}`;
   const cursorPlacement = useMemo(
     () => getPromptCursorPlacement(buffer, screenWidth, promptPrefix, footerText),
     [buffer, footerText, promptPrefix, screenWidth]
@@ -478,6 +478,12 @@ export function PromptInput({
       updateBuffer((s) => killLine(s));
       return;
     }
+    if (key.ctrl && (input === "z" || input === "Z")) {
+      updateBuffer(() => EMPTY_BUFFER);
+      setStatusMessage("已撤销输入");
+      return;
+    }
+
     if (key.ctrl && (input === "u" || input === "U")) {
       updateBuffer(() => EMPTY_BUFFER);
       return;
@@ -500,7 +506,7 @@ export function PromptInput({
       const sanitized = input.replace(/\r/g, "");
       updateBuffer((s) => insertText(s, sanitized));
     }
-  }, { isActive: !disabled });
+  }, { isActive: !disabled, stdout });
 
   function exitHistoryBrowsing(): void {
     setHistoryCursor(-1);
@@ -1002,7 +1008,7 @@ export function renderBufferWithCursor(state: PromptBufferState, isFocused: bool
 
 export function useTerminalInput(
   inputHandler: (input: string, key: InputKey) => void,
-  options: { isActive?: boolean } = {}
+  options: { isActive?: boolean; stdout?: NodeJS.WriteStream } = {}
 ): void {
   const { stdin, setRawMode, internal_exitOnCtrlC } = useStdin();
   const isActive = options.isActive ?? true;
@@ -1012,21 +1018,97 @@ export function useTerminalInput(
       return;
     }
     setRawMode(true);
+    // Enable bracketed paste mode so pasted text is wrapped in
+    // \u001B[200~...\u001B[201~, preventing line-ending characters like
+    // \r from being misinterpreted as keystrokes.
+    if (options.stdout?.isTTY) {
+      options.stdout.write("\u001B[?2004h");
+    }
     return () => {
       setRawMode(false);
+      if (options.stdout?.isTTY) {
+        options.stdout.write("\u001B[?2004l");
+      }
     };
-  }, [isActive, setRawMode]);
+  }, [isActive, setRawMode, options.stdout]);
 
   useEffect(() => {
     if (!isActive) {
       return;
     }
-    const handleData = (data: Buffer | string) => {
-      const { input, key } = parseTerminalInput(data);
 
+    const NO_MODIFIERS: InputKey = {
+      upArrow: false,
+      downArrow: false,
+      leftArrow: false,
+      rightArrow: false,
+      home: false,
+      end: false,
+      pageDown: false,
+      pageUp: false,
+      return: false,
+      escape: false,
+      ctrl: false,
+      shift: false,
+      tab: false,
+      backspace: false,
+      delete: false,
+      meta: false,
+      focusIn: false,
+      focusOut: false
+    };
+
+    let pasteBuffer = "";
+    let isPasting = false;
+
+    const processNormal = (raw: string): void => {
+      const { input, key } = parseTerminalInput(raw);
       if (!(input === "c" && key.ctrl) || !internal_exitOnCtrlC) {
         inputHandler(input, key);
       }
+    };
+
+    const handleData = (data: Buffer | string): void => {
+      const raw = String(data);
+
+      // Bracketed paste mode: pasted content is wrapped in
+      // \u001B[200~...\u001B[201~ by the terminal.
+      if (isPasting) {
+        const endIdx = raw.indexOf("\u001B[201~");
+        if (endIdx >= 0) {
+          pasteBuffer += raw.slice(0, endIdx);
+          isPasting = false;
+          // Convert \r\n (and standalone \r) to \n so pasted multi-line
+          // text is treated as a single insertion rather than multiple submits.
+          const cleaned = pasteBuffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          if (cleaned) {
+            // Insert the entire pasted text at once with no modifiers,
+            // so it flows through to insertText in the input handler.
+            inputHandler(cleaned, NO_MODIFIERS);
+          }
+          pasteBuffer = "";
+          // Process any data that followed the end marker
+          const remaining = raw.slice(endIdx + 6);
+          if (remaining) {
+            processNormal(remaining);
+          }
+        } else {
+          pasteBuffer += raw;
+        }
+        return;
+      }
+
+      if (raw.startsWith("\u001B[200~")) {
+        isPasting = true;
+        pasteBuffer = "";
+        const afterStart = raw.slice(6); // "\u001B[200~".length === 6
+        if (afterStart) {
+          handleData(afterStart); // Re-enter to check for end marker
+        }
+        return;
+      }
+
+      processNormal(raw);
     };
 
     stdin?.on("data", handleData);

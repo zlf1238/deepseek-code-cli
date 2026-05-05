@@ -37,6 +37,27 @@ const DEFAULT_BASE_URL = "https://api.deepseek.com";
 // Used by `/new` and session-switch to clear stale Static output from the terminal.
 const directTerminalWrite = process.stdout.write.bind(process.stdout);
 
+/**
+ * Clear the terminal screen and attempt to erase the scrollback buffer.
+ *
+ * The approach:
+ * 1. Standard escape sequences to clear display and scrollback
+ * 2. Fill several screenfuls of blank lines to push remaining old
+ *    scrollback content out of the buffer (fallback for terminals
+ *    where \u001B[3J is ignored).
+ * 3. Final clear and home cursor.
+ */
+function clearTerminal(): void {
+  directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+  directTerminalWrite("\u001B[3J");
+
+  // Fallback: blank-line fill pushes old content out of limited scrollback.
+  const rows = process.stdout.rows || 40;
+  directTerminalWrite("\n".repeat(rows * 3));
+
+  directTerminalWrite("\u001B[2J\u001B[H");
+}
+
 type View = "chat" | "session-list";
 
 type MessagesState = {
@@ -185,7 +206,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         sessionManager.setActiveSessionId(null);
         // Synchronously clear screen before React re-renders,
         // so the old Static output is wiped before new UI appears.
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        clearTerminal();
         dispatchMessages({ type: "resetMessages" });
         setStatusLine("");
         setErrorLine(null);
@@ -199,7 +220,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       }
       if (submission.command === "resume") {
         // Clear screen before switching views to avoid stale Ink output artifacts
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        clearTerminal();
         refreshSessionsList();
         setView("session-list");
         isSubmittingRef.current = false;
@@ -279,7 +300,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     async (sessionId: string) => {
       sessionManager.setActiveSessionId(sessionId);
       // Clear screen before loading new messages — old Static output persists otherwise.
-      directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+      clearTerminal();
       dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
       const session = sessionManager.getSession(sessionId);
       setStatusLine(session ? buildStatusLine(session, activeModelRef.current) : "");
@@ -369,7 +390,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           sessions={sessions}
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            clearTerminal();
             // Bump staticKey so <Static> re-renders all messages after screen clear
             dispatchMessages({ type: "setMessages", messages: messagesRef.current });
             setView("chat");
@@ -381,7 +402,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             setActiveStatus(null);
             setView("chat");
             refreshSessionsList();
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            clearTerminal();
           }}
         />
       ) : shouldShowQuestionPrompt && pendingQuestion && !busy ? (

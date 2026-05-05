@@ -71,6 +71,12 @@ test("parseTerminalInput recognizes terminal focus events", () => {
   assert.equal(focusOut.key.meta, false);
 });
 
+test("parseTerminalInput recognizes ctrl+z as a control character", () => {
+  const { input, key } = parseTerminalInput("\u001A");
+  assert.equal(input, "z");
+  assert.equal(key.ctrl, true);
+});
+
 test("parseTerminalInput recognizes ctrl+x as the image attachment clear shortcut", () => {
   const { input, key } = parseTerminalInput("\u0018");
   assert.equal(input, "x");
