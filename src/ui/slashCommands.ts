@@ -12,18 +12,6 @@ export type SlashCommandItem = {
 
 export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
   {
-    kind: "skills",
-    name: "skills",
-    label: "/skills",
-    description: "查看可用技能列表"
-  },
-  {
-    kind: "model",
-    name: "model",
-    label: "/model",
-    description: "切换当前模型"
-  },
-  {
     kind: "new",
     name: "new",
     label: "/new",
@@ -34,6 +22,18 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
     name: "resume",
     label: "/resume",
     description: "恢复历史对话"
+  },
+  {
+    kind: "skills",
+    name: "skills",
+    label: "/skills",
+    description: "查看可用技能列表"
+  },
+  {
+    kind: "model",
+    name: "model",
+    label: "/model",
+    description: "切换当前模型"
   },
   {
     kind: "exit",
@@ -63,9 +63,10 @@ export function filterSlashCommands(
   }
   const query = token.slice(1).toLowerCase();
   if (!query) {
-    // 至少在 / 后输入一个字符再显示菜单，避免菜单弹出/收起
-    // 导致的终端滚动暴露回滚缓冲区中的旧对话消息
-    return [];
+    // 裸 / 只显示内置命令（/new /resume /skills /model /exit），
+    // 不显示技能项。输入字母后才展示匹配的技能，减少终端布局波动
+    // 从而避免回滚缓冲区中的旧对话消息被滚动暴露
+    return items.filter((item) => item.kind !== "skill");
   }
   return items.filter((item) => item.name.toLowerCase().includes(query));
 }
