@@ -28,10 +28,10 @@ test("filterSlashCommands matches partial prefixes", () => {
   assert.deepEqual(matched, ["skill-writer", "skills"]);
 });
 
-test("filterSlashCommands returns all entries on bare slash", () => {
+test("filterSlashCommands returns nothing on bare slash to avoid terminal flicker", () => {
   const items = buildSlashCommands(skills);
   const matched = filterSlashCommands(items, "/");
-  assert.equal(matched.length, items.length);
+  assert.equal(matched.length, 0);
 });
 
 test("filterSlashCommands returns nothing for non-slash tokens", () => {

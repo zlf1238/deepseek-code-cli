@@ -63,7 +63,9 @@ export function filterSlashCommands(
   }
   const query = token.slice(1).toLowerCase();
   if (!query) {
-    return items;
+    // 至少在 / 后输入一个字符再显示菜单，避免菜单弹出/收起
+    // 导致的终端滚动暴露回滚缓冲区中的旧对话消息
+    return [];
   }
   return items.filter((item) => item.name.toLowerCase().includes(query));
 }
