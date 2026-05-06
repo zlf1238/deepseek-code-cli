@@ -218,14 +218,14 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // Clear screen before switching views to avoid stale Ink output artifacts.
-        clearTerminal();
-        // Switch view FIRST so the subsequent setSessions render already has
-        // view="session-list" and <Static> won't render messages into the
-        // terminal. In React 17 with raw events, each setState triggers a
-        // separate synchronous render — if refreshSessionsList fires before
-        // setView, an intermediate render with view="chat" would write the
-        // current session's messages above the SessionList.
+        // Clear screen with simple escape sequence — do NOT use clearTerminal().
+        // clearTerminal() writes \n × rows×3 as scrollback fallback, which scrolls
+        // the terminal viewport. When Ink's patched stdout then calls
+        // restorePromptCursor(), the viewport shifts into scrollback, exposing old
+        // messages above the SessionList.
+        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        // Switch view first so the intermediate render from refreshSessionsList
+        // already sees view="session-list" and <Static> won't render messages.
         setView("session-list");
         refreshSessionsList();
         isSubmittingRef.current = false;
