@@ -31,13 +31,7 @@ export function MessageView({ message, collapsed }: Props): React.ReactElement |
 
     if (isThinking) {
       if (collapsed) {
-        const summary = buildThinkingSummary(content, message.messageParams);
-        return (
-          <Box marginY={0}>
-            <StatusLine bulletColor="gray" name="Thinking" params={summary} />
-            <Text dimColor> (expand to read)</Text>
-          </Box>
-        );
+        return null;
       }
       return (
         <Box flexDirection="column" marginY={0}>

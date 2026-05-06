@@ -28,34 +28,18 @@ test("parseDiffPreview keeps nonstandard context lines", () => {
   ]);
 });
 
-test("MessageView summarizes thinking content across lines", () => {
-  assert.equal(
-    getThinkingParams({
-      content: "Plan:\n\nInspect the code   and update tests"
-    }),
-    "Plan: Inspect the code and update tests"
-  );
+test("MessageView hides collapsed thinking", () => {
+  const view = MessageView({ message: buildAssistantMessage({}), collapsed: true });
+  assert.equal(view, null);
 });
 
-test("MessageView removes a trailing colon from thinking summaries", () => {
-  assert.equal(getThinkingParams({ content: "Planning:" }), "Planning");
+test("MessageView renders expanded thinking", () => {
+  const view = MessageView({ message: buildAssistantMessage({ content: "思考中..." }), collapsed: false }) as any;
+  assert.notEqual(view, null);
+  // Should show the thinking content
+  const hasThinkingContent = JSON.stringify(view).includes("思考中...");
+  assert.equal(hasThinkingContent, true);
 });
-
-test("MessageView falls back to a reasoning placeholder for hidden reasoning content", () => {
-  assert.equal(
-    getThinkingParams({
-      content: "",
-      messageParams: { reasoning_content: "hidden chain of thought" }
-    }),
-    "(reasoning...)"
-  );
-});
-
-function getThinkingParams(overrides: Partial<SessionMessage>): string {
-  // Pass collapsed: true so the view renders the summary StatusLine.
-  const view = MessageView({ message: buildAssistantMessage(overrides), collapsed: true }) as any;
-  return view.props.children[0].props.params;
-}
 
 function buildAssistantMessage(overrides: Partial<SessionMessage>): SessionMessage {
   return {
