@@ -218,15 +218,11 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // Clear the screen and fill the terminal with blank lines so that
-        // PromptInput's usePromptTerminalCursor cleanup (restorePromptCursor,
-        // called during unmount) does not scroll old scrollback content into
-        // view. The \n.repeat fills the scrollback with whitespace; the final
-        // \u001B[2J\u001B[H clears the visible screen.
-        const rows = process.stdout.rows || 40;
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H" + "\n".repeat(rows) + "\u001B[2J\u001B[H");
-        // Switch view first so the intermediate render from refreshSessionsList
-        // already sees view="session-list" and <Static> won't render messages.
+        // clearTerminal() writes \n × rows×3 to fill the scrollback buffer
+        // with blank lines. This padding prevents restorePromptCursor()
+        // (called when PromptInput unmounts below) from scrolling old
+        // messages into view.
+        clearTerminal();
         setView("session-list");
         refreshSessionsList();
         isSubmittingRef.current = false;
