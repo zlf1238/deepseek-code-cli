@@ -218,9 +218,18 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
+        // Clear screen without filling scrollback (\n×rows×3 scrolls terminal,
+        // exposing old messages). Use \u001B[3J to clear scrollback and
+        // \u001B[2J to clear display.
         directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
-        refreshSessionsList();
+        // Increment staticKey so <Static> re-mounts with empty items.
+        dispatchMessages({ type: "resetMessages" });
+        // Switch view FIRST — in React 17 each setState triggers a synchronous
+        // render. If refreshSessionsList fires before setView, the intermediate
+        // render still has view="chat", and <Static> writes session messages
+        // above the SessionList.
         setView("session-list");
+        refreshSessionsList();
         isSubmittingRef.current = false;
         return;
       }
