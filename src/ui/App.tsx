@@ -364,14 +364,16 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           width={screenWidth}
         />
       ) : null}
-      <Static key={`messages-${staticKey}`} items={messages}>
-        {(message) => (
-          <MessageView
-            key={message.id}
-            message={message}
-          />
-        )}
-      </Static>
+      {view === "chat" ? (
+        <Static key={`messages-${staticKey}`} items={messages}>
+          {(message) => (
+            <MessageView
+              key={message.id}
+              message={message}
+            />
+          )}
+        </Static>
+      ) : null}
       {statusLine ? (
         <Box>
           <Text dimColor>{statusLine}</Text>
