@@ -218,12 +218,13 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // Clear screen with simple escape sequence — do NOT use clearTerminal().
-        // clearTerminal() writes \n × rows×3 as scrollback fallback, which scrolls
-        // the terminal viewport. When Ink's patched stdout then calls
-        // restorePromptCursor(), the viewport shifts into scrollback, exposing old
-        // messages above the SessionList.
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        // Clear the screen and fill the terminal with blank lines so that
+        // PromptInput's usePromptTerminalCursor cleanup (restorePromptCursor,
+        // called during unmount) does not scroll old scrollback content into
+        // view. The \n.repeat fills the scrollback with whitespace; the final
+        // \u001B[2J\u001B[H clears the visible screen.
+        const rows = process.stdout.rows || 40;
+        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H" + "\n".repeat(rows) + "\u001B[2J\u001B[H");
         // Switch view first so the intermediate render from refreshSessionsList
         // already sees view="session-list" and <Static> won't render messages.
         setView("session-list");
@@ -396,10 +397,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
             clearTerminal();
-            // Read active session directly from SessionManager instead of
-            // relying on messagesRef.current, which may hold stale messages
-            // from a previous session if React hasn't re-rendered yet after
-            // a quick /new -> /resume sequence.
             const activeId = sessionManager.getActiveSessionId();
             if (activeId) {
               dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, activeId) });
@@ -424,28 +421,20 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onSubmit={handleQuestionAnswers}
           onCancel={handleQuestionCancel}
         />
-      ) : null}
-      {/*
-        Render PromptInput in all views (disabled during session-list).
-        When PromptInput unmounts, usePromptTerminalCursor's cleanup calls
-        restorePromptCursor() which moves the cursor down by the old rowsUp
-        value. This scrolls the terminal viewport into the scrollback buffer,
-        exposing old messages above the SessionList. Keeping PromptInput in
-        the tree avoids this cleanup entirely.
-      */}
-      <PromptInput
-        key={staticKey}
-        skills={skills}
-        activeModel={activeModel}
-        modelList={modelList}
-        onModelChange={(name) => void handleModelChange(name)}
-        promptHistory={promptHistory}
-        busy={busy}
-        loadingText={loadingText}
-        disabled={view !== "chat"}
-        onSubmit={(submission) => void handlePrompt(submission)}
-        onInterrupt={handleInterrupt}
-      />
+      ) : (
+        <PromptInput
+          key={staticKey}
+          skills={skills}
+          activeModel={activeModel}
+          modelList={modelList}
+          onModelChange={(name) => void handleModelChange(name)}
+          promptHistory={promptHistory}
+          busy={busy}
+          loadingText={loadingText}
+          onSubmit={(submission) => void handlePrompt(submission)}
+          onInterrupt={handleInterrupt}
+        />
+      )}
     </Box>
   );
 }
