@@ -227,6 +227,10 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         clearTerminal();
         // Increment staticKey so <Static> re-mounts with empty items.
         dispatchMessages({ type: "resetMessages" });
+        setStatusLine("");
+        setErrorLine(null);
+        setRunningProcesses(null);
+        setActiveStatus(null);
         // Switch view FIRST — in React 17 each setState triggers a synchronous
         // render. If refreshSessionsList fires before setView, the intermediate
         // render still has view="chat", and <Static> writes session messages
