@@ -339,6 +339,18 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const shouldShowQuestionPrompt = Boolean(
     pendingQuestion && !dismissedQuestionIds.has(pendingQuestion.messageId)
   );
+  // 只保留最新的步骤指示器，历史指示器隐藏
+  const displayMessages = useMemo(() => {
+    let lastStepIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].meta?.isStepIndicator) {
+        lastStepIdx = i;
+        break;
+      }
+    }
+    if (lastStepIdx === -1) return messages;
+    return messages.filter((m, i) => !m.meta?.isStepIndicator || i === lastStepIdx);
+  }, [messages]);
   // Recalculated every render so the elapsed-time counter ticks in real time.
   const loadingText = busy
     ? buildLoadingText({ progress: streamProgress, processes: runningProcesses, now: Date.now() })
@@ -378,7 +390,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           width={screenWidth}
         />
       ) : null}
-      <Static key={`messages-${staticKey}`} items={messages}>
+      <Static key={`messages-${staticKey}`} items={displayMessages}>
         {(message) => (
           <MessageView
             key={message.id}
