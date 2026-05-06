@@ -28,17 +28,14 @@ test("parseDiffPreview keeps nonstandard context lines", () => {
   ]);
 });
 
-test("MessageView hides collapsed thinking", () => {
-  const view = MessageView({ message: buildAssistantMessage({}), collapsed: true });
+test("MessageView hides assistant thinking messages", () => {
+  const view = MessageView({ message: buildAssistantMessage({ content: "思考内容" }) });
   assert.equal(view, null);
 });
 
-test("MessageView renders expanded thinking", () => {
-  const view = MessageView({ message: buildAssistantMessage({ content: "思考中..." }), collapsed: false }) as any;
+test("MessageView shows assistant final answer", () => {
+  const view = MessageView({ message: buildAssistantMessage({ meta: undefined, content: "最终回答" }) });
   assert.notEqual(view, null);
-  // Should show the thinking content
-  const hasThinkingContent = JSON.stringify(view).includes("思考中...");
-  assert.equal(hasThinkingContent, true);
 });
 
 function buildAssistantMessage(overrides: Partial<SessionMessage>): SessionMessage {

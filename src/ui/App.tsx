@@ -21,7 +21,6 @@ import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
 import { SessionList } from "./SessionList";
 import { buildLoadingText } from "./loadingText";
-import { findExpandedThinkingId } from "./thinkingState";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { AskUserQuestionPrompt } from "./AskUserQuestionPrompt";
 import {
@@ -319,7 +318,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       .map((message) => (message.content ?? "").trim())
       .filter((content) => content.length > 0);
   }, [messages]);
-  const expandedThinkingId = findExpandedThinkingId(messages);
   const pendingQuestion = useMemo(
     () => findPendingAskUserQuestion(messages, activeStatus),
     [activeStatus, messages]
@@ -371,7 +369,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           <MessageView
             key={message.id}
             message={message}
-            collapsed={isCollapsedThinking(message, expandedThinkingId)}
           />
         )}
       </Static>
@@ -427,16 +424,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       )}
     </Box>
   );
-}
-
-function isCollapsedThinking(message: SessionMessage, expandedId: string | null): boolean {
-  if (message.role !== "assistant") {
-    return false;
-  }
-  if (!message.meta?.asThinking) {
-    return false;
-  }
-  return message.id !== expandedId;
 }
 
 function buildSyntheticUserMessage(content: string, imageCount: number): SessionMessage {
@@ -625,7 +612,9 @@ export function createOpenAIClient(overrideModel?: string): {
 
   const client = new OpenAI({
     apiKey: settings.apiKey,
-    baseURL: settings.baseURL || undefined
+    baseURL: settings.baseURL || undefined,
+    maxRetries: 2,
+    timeout: 120_000
   });
   return {
     client,

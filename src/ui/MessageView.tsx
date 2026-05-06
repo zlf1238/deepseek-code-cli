@@ -5,10 +5,9 @@ import type { SessionMessage } from "../session";
 
 type Props = {
   message: SessionMessage;
-  collapsed?: boolean;
 };
 
-export function MessageView({ message, collapsed }: Props): React.ReactElement | null {
+export function MessageView({ message }: Props): React.ReactElement | null {
   if (!message.visible) {
     return null;
   }
@@ -30,17 +29,7 @@ export function MessageView({ message, collapsed }: Props): React.ReactElement |
     const content = (message.content || "").trim();
 
     if (isThinking) {
-      if (collapsed) {
-        return null;
-      }
-      return (
-        <Box flexDirection="column" marginY={0}>
-          <StatusLine bulletColor="gray" name="Thinking" params="" />
-          <Box marginLeft={2} flexDirection="column">
-            <Text dimColor>{content}</Text>
-          </Box>
-        </Box>
-      );
+      return null;
     }
 
     return (
@@ -303,20 +292,4 @@ function firstNonEmptyLine(value: string): string {
   return "";
 }
 
-function buildThinkingSummary(content: string, messageParams: unknown | null): string {
-  if (content) {
-    const normalized = content.replace(/\r?\n/g, " ").replace(/\s+/g, " ");
-    let result = truncate(normalized, 100);
-    if (result.endsWith(":") || result.endsWith("：")) {
-      result = result.slice(0, -1);
-    }
-    return result;
-  }
 
-  const params = messageParams as { reasoning_content?: unknown } | null | undefined;
-  if (typeof params?.reasoning_content === "string" && params.reasoning_content.trim()) {
-    return "(reasoning...)";
-  }
-
-  return "";
-}
