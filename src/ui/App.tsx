@@ -218,10 +218,16 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // Clear screen before switching views to avoid stale Ink output artifacts
+        // Clear screen before switching views to avoid stale Ink output artifacts.
         clearTerminal();
-        refreshSessionsList();
+        // Switch view FIRST so the subsequent setSessions render already has
+        // view="session-list" and <Static> won't render messages into the
+        // terminal. In React 17 with raw events, each setState triggers a
+        // separate synchronous render — if refreshSessionsList fires before
+        // setView, an intermediate render with view="chat" would write the
+        // current session's messages above the SessionList.
         setView("session-list");
+        refreshSessionsList();
         isSubmittingRef.current = false;
         return;
       }
