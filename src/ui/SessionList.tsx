@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import React, { useMemo, useState } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
 import type { SessionEntry } from "../session";
 
 type Props = {
@@ -9,10 +9,30 @@ type Props = {
   onDelete?: (sessionIds: string[]) => void;
 };
 
+/**
+ * Fixed overhead lines in the SessionList layout:
+ *   1  title line ("选择一个会话继续")
+ *   1  hidden-notice line (conditional)
+ *   1  marginTop spacer (from the instruction <Box>)
+ *   1  instruction line
+ *  ----
+ *   4  total fixed lines
+ */
+const OVERHEAD_LINES = 4;
+
 export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): React.ReactElement {
+  const { stdout } = useStdout();
   const [index, setIndex] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Compute how many sessions fit within the terminal window.
+  const maxVisible = useMemo(() => {
+    const rows = stdout?.rows ?? 24;
+    // Reserve overhead lines + 1 safety line so the list never overflows
+    return Math.max(5, rows - OVERHEAD_LINES - 1);
+  }, [stdout?.rows]);
 
   useInput((input, key) => {
     // Global: Esc always cancels delete mode first, then cancels the view
@@ -38,11 +58,15 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
         return;
       }
       if (key.upArrow) {
-        setIndex((i) => Math.max(0, i - 1));
+        const next = Math.max(0, index - 1);
+        setIndex(next);
+        autoScroll(next);
         return;
       }
       if (key.downArrow) {
-        setIndex((i) => Math.min(sessions.length - 1, i + 1));
+        const next = Math.min(sessions.length - 1, index + 1);
+        setIndex(next);
+        autoScroll(next);
         return;
       }
       if (input === " ") {
@@ -64,6 +88,7 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
           setDeleteMode(false);
           setSelectedIds(new Set());
           setIndex(0);
+          setScrollOffset(0);
         }
         return;
       }
@@ -72,11 +97,15 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
 
     // Normal mode
     if (key.upArrow) {
-      setIndex((i) => Math.max(0, i - 1));
+      const next = Math.max(0, index - 1);
+      setIndex(next);
+      autoScroll(next);
       return;
     }
     if (key.downArrow) {
-      setIndex((i) => Math.min(sessions.length - 1, i + 1));
+      const next = Math.min(sessions.length - 1, index + 1);
+      setIndex(next);
+      autoScroll(next);
       return;
     }
     if (key.return) {
@@ -93,6 +122,18 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
     }
   });
 
+  function autoScroll(targetIndex: number): void {
+    setScrollOffset((current) => {
+      if (targetIndex < current) {
+        return targetIndex;
+      }
+      if (targetIndex >= current + maxVisible) {
+        return targetIndex - maxVisible + 1;
+      }
+      return current;
+    });
+  }
+
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column">
@@ -107,8 +148,12 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
       <Text bold color={deleteMode ? "red" : "cyanBright"}>
         {deleteMode ? "删除会话" : "选择一个会话继续"}
       </Text>
-      {sessions.slice(0, 30).map((session, i) => {
-        const isCurrent = i === index;
+      {scrollOffset > 0 ? (
+        <Text dimColor>…… {scrollOffset} 个更早的会话已隐藏</Text>
+      ) : null}
+      {sessions.slice(scrollOffset, scrollOffset + maxVisible).map((session, i) => {
+        const sessionIndex = scrollOffset + i;
+        const isCurrent = sessionIndex === index;
         const isSelected = selectedIds.has(session.id);
         let prefix: string;
         if (deleteMode) {
@@ -131,7 +176,9 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
           </Text>
         );
       })}
-      {sessions.length > 30 ? <Text dimColor>…… 还有 {sessions.length - 30} 个更早的会话已隐藏</Text> : null}
+      {scrollOffset + maxVisible < sessions.length ? (
+        <Text dimColor>…… 还有 {sessions.length - scrollOffset - maxVisible} 个更晚的会话已隐藏</Text>
+      ) : null}
       <Box marginTop={1}>
         {deleteMode ? (
           <Text dimColor>

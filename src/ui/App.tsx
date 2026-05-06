@@ -33,7 +33,8 @@ const DEFAULT_MODEL = "deepseek-v4-pro";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 // Capture unpatched stdout.write before Ink / PromptInput intercept it.
-// Used by `/new` and session-switch to clear stale Static output from the terminal.
+// Used by clearTerminal() to directly write escape sequences that bypass
+// Ink's output interceptor.
 const directTerminalWrite = process.stdout.write.bind(process.stdout);
 
 /**
@@ -218,10 +219,12 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // Clear screen without filling scrollback (\n×rows×3 scrolls terminal,
-        // exposing old messages). Use \u001B[3J to clear scrollback and
-        // \u001B[2J to clear display.
-        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+        // Use clearTerminal() with scrollback fill (same as /new), so old
+        // Static output from the previous chat session is fully wiped from
+        // both the display and scrollback buffer.  Using bare \u001B[3J alone
+        // is unreliable because many terminals (e.g. Windows Terminal) ignore
+        // it, leaving old message lines visible above the SessionList.
+        clearTerminal();
         // Increment staticKey so <Static> re-mounts with empty items.
         dispatchMessages({ type: "resetMessages" });
         // Switch view FIRST — in React 17 each setState triggers a synchronous
@@ -306,7 +309,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       sessionManager.setActiveSessionId(sessionId);
-      directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+      // Same clearTerminal() as /new and /resume — ensures old Static output
+      // is wiped from both display and scrollback before new messages render.
+      clearTerminal();
       // resetMessages increments staticKey → Static re-renders; setMessages loads the data
       dispatchMessages({ type: "resetMessages" });
       dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
@@ -396,7 +401,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           sessions={sessions}
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            clearTerminal();
             // resetMessages increments staticKey so Static re-renders
             dispatchMessages({ type: "resetMessages" });
             setView("chat");
@@ -408,7 +413,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             setActiveStatus(null);
             setView("chat");
             refreshSessionsList();
-            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            clearTerminal();
           }}
         />
       ) : shouldShowQuestionPrompt && pendingQuestion && !busy ? (
