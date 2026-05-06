@@ -145,11 +145,11 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
 
   return (
     <Box flexDirection="column">
-      <Text bold color={deleteMode ? "red" : "cyanBright"}>
+      <Text bold color={deleteMode ? "red" : "cyanBright"} wrap="truncate-end">
         {deleteMode ? "删除会话" : "选择一个会话继续"}
       </Text>
       {scrollOffset > 0 ? (
-        <Text dimColor>…… {scrollOffset} 个更早的会话已隐藏</Text>
+        <Text dimColor wrap="truncate-end">…… {scrollOffset} 个更早的会话已隐藏</Text>
       ) : null}
       {sessions.slice(scrollOffset, scrollOffset + maxVisible).map((session, i) => {
         const sessionIndex = scrollOffset + i;
@@ -168,7 +168,7 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
           : isCurrent ? "cyanBright" : undefined;
 
         return (
-          <Text key={session.id} color={color}>
+          <Text key={session.id} color={color} wrap="truncate-end">
             {prefix}
             <Text dimColor>{formatTimestamp(session.updateTime)} </Text>
             <Text>{formatSessionTitle(session.summary || "Untitled")}</Text>
@@ -177,18 +177,18 @@ export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): 
         );
       })}
       {scrollOffset + maxVisible < sessions.length ? (
-        <Text dimColor>…… 还有 {sessions.length - scrollOffset - maxVisible} 个更晚的会话已隐藏</Text>
+        <Text dimColor wrap="truncate-end">…… 还有 {sessions.length - scrollOffset - maxVisible} 个更晚的会话已隐藏</Text>
       ) : null}
       <Box marginTop={1}>
         {deleteMode ? (
-          <Text dimColor>
+          <Text dimColor wrap="truncate-end">
             {selectedIds.size === sessions.length
               ? "空格/a: 取消全选"
               : "空格: 切换选择 · a: 全选"}
             · Enter: 确认删除({selectedIds.size} 个) · Esc/d: 退出删除模式
           </Text>
         ) : (
-          <Text dimColor>↑/↓: 切换选择 · Enter: 继续该会话 · d: 进入批量删除模式 · Esc: 返回</Text>
+          <Text dimColor wrap="truncate-end">↑/↓: 切换选择 · Enter: 继续该会话 · d: 进入批量删除模式 · Esc: 返回</Text>
         )}
       </Box>
     </Box>
