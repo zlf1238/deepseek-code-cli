@@ -1027,8 +1027,15 @@ ${skillMd}
       }));
 
       if (!aborted) {
+        let displayMessage = `Request failed: ${errMessage}`;
+        if (error instanceof Error && error.constructor.name === "APIConnectionError") {
+          displayMessage = `Request failed: ${errMessage}\n\nTroubleshooting:\n` +
+            `  1. Check network: curl -I https://api.deepseek.com\n` +
+            `  2. Check proxy settings (HTTP_PROXY / HTTPS_PROXY)\n` +
+            `  3. Verify API key in ~/.deepseek-code/settings.json`;
+        }
         this.onAssistantMessage(
-          this.buildAssistantMessage(sessionId, `Request failed: ${errMessage}`, null),
+          this.buildAssistantMessage(sessionId, displayMessage, null),
           false,
         );
       }

@@ -388,8 +388,16 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
             clearTerminal();
-            // Bump staticKey so <Static> re-renders all messages after screen clear
-            dispatchMessages({ type: "setMessages", messages: messagesRef.current });
+            // Read active session directly from SessionManager instead of
+            // relying on messagesRef.current, which may hold stale messages
+            // from a previous session if React hasn't re-rendered yet after
+            // a quick /new -> /resume sequence.
+            const activeId = sessionManager.getActiveSessionId();
+            if (activeId) {
+              dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, activeId) });
+            } else {
+              dispatchMessages({ type: "resetMessages" });
+            }
             setView("chat");
           }}
           onDelete={(ids) => {
