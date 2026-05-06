@@ -51,9 +51,11 @@ function clearTerminal(): void {
   directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
   directTerminalWrite("\u001B[3J");
 
-  // Fallback: blank-line fill pushes old content out of limited scrollback.
+  // Fallback: blank-line fill pushes old content out of scrollback.
+  // Use a large count (>=3000) to exhaust Windows Terminal's large default
+  // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
   const rows = process.stdout.rows || 40;
-  directTerminalWrite("\n".repeat(rows * 3));
+  directTerminalWrite("\n".repeat(Math.max(rows * 30, 3000)));
 
   directTerminalWrite("\u001B[2J\u001B[H");
 }
