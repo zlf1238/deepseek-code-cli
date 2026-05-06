@@ -424,20 +424,28 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onSubmit={handleQuestionAnswers}
           onCancel={handleQuestionCancel}
         />
-      ) : (
-        <PromptInput
-          key={staticKey}
-          skills={skills}
-          activeModel={activeModel}
-          modelList={modelList}
-          onModelChange={(name) => void handleModelChange(name)}
-          promptHistory={promptHistory}
-          busy={busy}
-          loadingText={loadingText}
-          onSubmit={(submission) => void handlePrompt(submission)}
-          onInterrupt={handleInterrupt}
-        />
-      )}
+      ) : null}
+      {/*
+        Render PromptInput in all views (disabled during session-list).
+        When PromptInput unmounts, usePromptTerminalCursor's cleanup calls
+        restorePromptCursor() which moves the cursor down by the old rowsUp
+        value. This scrolls the terminal viewport into the scrollback buffer,
+        exposing old messages above the SessionList. Keeping PromptInput in
+        the tree avoids this cleanup entirely.
+      */}
+      <PromptInput
+        key={staticKey}
+        skills={skills}
+        activeModel={activeModel}
+        modelList={modelList}
+        onModelChange={(name) => void handleModelChange(name)}
+        promptHistory={promptHistory}
+        busy={busy}
+        loadingText={loadingText}
+        disabled={view !== "chat"}
+        onSubmit={(submission) => void handlePrompt(submission)}
+        onInterrupt={handleInterrupt}
+      />
     </Box>
   );
 }
