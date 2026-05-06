@@ -18,19 +18,19 @@ test("getTools with flash model but no flashAutoSwitch (primary flash) returns a
   assert.equal(names.length, 8);
 });
 
-test("getTools with flash model and flashAutoSwitch returns only file operation tools", () => {
+test("getTools with flash model and flashAutoSwitch returns file + bash tools", () => {
   const names = getTools({ model: "deepseek-v4-flash", flashAutoSwitch: true }).map((tool) => tool.function.name);
   assert.equal(names.includes("read"), true);
   assert.equal(names.includes("write"), true);
   assert.equal(names.includes("edit"), true);
   assert.equal(names.includes("glob"), true);
   assert.equal(names.includes("grep"), true);
+  assert.equal(names.includes("bash"), true);
   // Auto-switch flash should NOT have these
-  assert.equal(names.includes("bash"), false);
   assert.equal(names.includes("AskUserQuestion"), false);
   assert.equal(names.includes("WebSearch"), false);
-  // Exactly 5 file operation tools
-  assert.equal(names.length, 5);
+  // Exactly 6 tools (file ops + bash)
+  assert.equal(names.length, 6);
 });
 
 test("getSystemPrompt without model returns full prompt with all tool docs", () => {
@@ -51,14 +51,14 @@ test("getSystemPrompt with flash model but no flashAutoSwitch (primary flash) re
 test("getSystemPrompt with flash model and flashAutoSwitch uses flash-specific prompt and limited docs", () => {
   const prompt = getSystemPrompt("/tmp/project", { model: "deepseek-v4-flash", flashAutoSwitch: true });
   // Flash-specific system prompt
-  assert.equal(prompt.includes("专注于文件操作"), true);
+  assert.equal(prompt.includes("快速执行用户请求"), true);
   assert.equal(prompt.includes("直接执行，做完即止"), true);
-  // File operation docs only
+  // File operation docs + bash included
   assert.equal(prompt.includes("## Read"), true);
   assert.equal(prompt.includes("## Grep"), true);
-  // Non-file operation docs excluded
+  assert.equal(prompt.includes("## Bash"), true);
+  // Non-file/non-bash docs excluded
   assert.equal(prompt.includes("## WebSearch"), false);
-  assert.equal(prompt.includes("## Bash"), false);
   assert.equal(prompt.includes("## AskUserQuestion"), false);
 });
 
