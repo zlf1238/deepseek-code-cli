@@ -72,7 +72,7 @@ type MessagesAction =
 function messagesReducer(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
     case "setMessages":
-      return { messages: action.messages, staticKey: state.staticKey + 1 };
+      return { ...state, messages: action.messages };
     case "appendMessage":
       return { ...state, messages: [...state.messages, action.message] };
     case "resetMessages":
@@ -218,13 +218,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         return;
       }
       if (submission.command === "resume") {
-        // clearTerminal() writes \n × rows×3 to fill the scrollback buffer
-        // with blank lines. This padding prevents restorePromptCursor()
-        // (called when PromptInput unmounts below) from scrolling old
-        // messages into view.
-        clearTerminal();
-        setView("session-list");
+        directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
         refreshSessionsList();
+        setView("session-list");
         isSubmittingRef.current = false;
         return;
       }
@@ -301,8 +297,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       sessionManager.setActiveSessionId(sessionId);
-      // Clear screen before loading new messages — old Static output persists otherwise.
-      clearTerminal();
+      directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+      // resetMessages increments staticKey → Static re-renders; setMessages loads the data
+      dispatchMessages({ type: "resetMessages" });
       dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
       const session = sessionManager.getSession(sessionId);
       setStatusLine(session ? buildStatusLine(session, activeModelRef.current) : "");
@@ -367,16 +364,14 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           width={screenWidth}
         />
       ) : null}
-      {view === "chat" ? (
-        <Static key={`messages-${staticKey}`} items={messages}>
-          {(message) => (
-            <MessageView
-              key={message.id}
-              message={message}
-            />
-          )}
-        </Static>
-      ) : null}
+      <Static key={`messages-${staticKey}`} items={messages}>
+        {(message) => (
+          <MessageView
+            key={message.id}
+            message={message}
+          />
+        )}
+      </Static>
       {statusLine ? (
         <Box>
           <Text dimColor>{statusLine}</Text>
@@ -392,13 +387,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           sessions={sessions}
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
-            clearTerminal();
-            const activeId = sessionManager.getActiveSessionId();
-            if (activeId) {
-              dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, activeId) });
-            } else {
-              dispatchMessages({ type: "resetMessages" });
-            }
+            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+            // resetMessages increments staticKey so Static re-renders
+            dispatchMessages({ type: "resetMessages" });
             setView("chat");
           }}
           onDelete={(ids) => {
@@ -408,7 +399,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             setActiveStatus(null);
             setView("chat");
             refreshSessionsList();
-            clearTerminal();
+            directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
           }}
         />
       ) : shouldShowQuestionPrompt && pendingQuestion && !busy ? (
