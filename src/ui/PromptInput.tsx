@@ -30,6 +30,7 @@ import {
 } from "./slashCommands";
 import { readClipboardImage } from "./clipboard";
 import { getModelProviderLabel } from "../model-capabilities";
+import type { ReasoningEffort } from "../settings";
 import type { SkillInfo } from "../session";
 
 export type PromptSubmission = {
@@ -44,6 +45,9 @@ type Props = {
   activeModel: string;
   modelList: string[];
   onModelChange: (modelName: string) => void;
+  activeThinking: boolean;
+  activeReasoningEffort: ReasoningEffort;
+  onThinkingChange: (thinkingEnabled: boolean, reasoningEffort?: ReasoningEffort) => void;
   promptHistory: string[];
   busy: boolean;
   loadingText?: string | null;
@@ -92,6 +96,9 @@ export function PromptInput({
   activeModel,
   modelList,
   onModelChange,
+  activeThinking,
+  activeReasoningEffort,
+  onThinkingChange,
   promptHistory,
   busy,
   loadingText,
@@ -112,6 +119,8 @@ export function PromptInput({
   const [skillsDropdownIndex, setSkillsDropdownIndex] = useState(0);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [modelDropdownIndex, setModelDropdownIndex] = useState(0);
+  const [showThinkingMenu, setShowThinkingMenu] = useState(false);
+  const [thinkingMenuIndex, setThinkingMenuIndex] = useState(0);
   const [historyCursor, setHistoryCursor] = useState(-1);
   const [draftBeforeHistory, setDraftBeforeHistory] = useState<string | null>(null);
   const [hasTerminalFocus, setHasTerminalFocus] = useState(true);
@@ -120,7 +129,7 @@ export function PromptInput({
 
   const slashItems = useMemo(() => buildSlashCommands(skills), [skills]);
   const slashToken = getCurrentSlashToken(buffer);
-  const slashMenu = (showSkillsDropdown || showModelDropdown) ? [] : slashToken ? filterSlashCommands(slashItems, slashToken) : [];
+  const slashMenu = (showSkillsDropdown || showModelDropdown || showThinkingMenu) ? [] : slashToken ? filterSlashCommands(slashItems, slashToken) : [];
   const showMenu = slashMenu.length > 0;
   const promptHistoryKey = useMemo(() => promptHistory.join("\0"), [promptHistory]);
   const promptPrefix = busy ? `${SPINNER_FRAMES[spinnerIndex]} ` : "❯ ";
@@ -135,7 +144,7 @@ export function PromptInput({
       ? loadingText && loadingText.trim()
         ? `${loadingText} · model: ${formatModelDisplay(activeModel)}`
         : `Esc: 中断响应 · Ctrl+C: 取消输入 · model: ${formatModelDisplay(activeModel)}`
-      : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)}`;
+      : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)} · thinking: ${activeThinking ? activeReasoningEffort : "off"}`;
   const cursorPlacement = useMemo(
     () => getPromptCursorPlacement(buffer, screenWidth, promptPrefix, footerText),
     [buffer, footerText, promptPrefix, screenWidth]
@@ -237,6 +246,10 @@ export function PromptInput({
         setShowModelDropdown(false);
         return;
       }
+      if (showThinkingMenu) {
+        setShowThinkingMenu(false);
+        return;
+      }
       if (busy) {
         onInterrupt();
         setStatusMessage("正在中断……");
@@ -323,6 +336,38 @@ export function PromptInput({
       }
       if (key.tab) {
         setShowModelDropdown(false);
+        return;
+      }
+    }
+
+    if (showThinkingMenu) {
+      const thinkingOptions = buildThinkingOptions(activeThinking, activeReasoningEffort);
+      if (key.upArrow) {
+        setThinkingMenuIndex((idx) => (idx - 1 + Math.max(thinkingOptions.length, 1)) % Math.max(thinkingOptions.length, 1));
+        return;
+      }
+      if (key.downArrow) {
+        setThinkingMenuIndex((idx) => (idx + 1) % Math.max(thinkingOptions.length, 1));
+        return;
+      }
+      if ((input === " " && !key.ctrl && !key.meta) || (key.return && !key.shift && !key.meta)) {
+        const option = thinkingOptions[thinkingMenuIndex];
+        if (option) {
+          if (option.kind === "toggle") {
+            const newValue = !activeThinking;
+            const effort = newValue ? activeReasoningEffort : undefined;
+            onThinkingChange(newValue, effort);
+            setStatusMessage(newValue ? `思考模式已开启 (${activeReasoningEffort})` : "思考模式已关闭");
+          } else if (option.kind === "effort" && option.value) {
+            onThinkingChange(activeThinking, option.value);
+            setStatusMessage(`思考努力度已设为 ${option.value}`);
+          }
+          setShowThinkingMenu(false);
+        }
+        return;
+      }
+      if (key.tab) {
+        setShowThinkingMenu(false);
         return;
       }
     }
@@ -567,6 +612,12 @@ export function PromptInput({
       setShowModelDropdown(true);
       return;
     }
+    if (item.kind === "thinking") {
+      clearSlashToken();
+      setThinkingMenuIndex(0);
+      setShowThinkingMenu(true);
+      return;
+    }
     if (item.kind === "new") {
       // Reset local state first, then notify parent — the parent changes
       // staticKey which unmounts this PromptInput, so no setState should
@@ -708,6 +759,28 @@ export function PromptInput({
           <Text dimColor>Enter/空格: 选择 · Esc: 关闭</Text>
         </Box>
       ) : null}
+      {showThinkingMenu ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="yellow" bold>切换思考模式</Text>
+          {buildThinkingOptions(activeThinking, activeReasoningEffort).map((option, idx) => {
+            const active = idx === thinkingMenuIndex;
+            const selected = option.kind === "toggle"
+              ? activeThinking
+              : option.kind === "effort" && option.value === activeReasoningEffort && activeThinking;
+            return (
+              <Text key={option.label} color={active ? "cyanBright" : undefined} wrap="truncate-end">
+                {active ? "► " : "  "}
+                {selected ? "●" : "○"}{" "}
+                <Text bold>{option.label}</Text>
+                {option.detail ? <Text dimColor>{`  ${option.detail}`}</Text> : null}
+                {option.kind === "toggle" && activeThinking ? <Text color="green">  (当前)</Text> : null}
+                {option.kind === "toggle" && !activeThinking ? <Text color="green">  (当前)</Text> : null}
+              </Text>
+            );
+          })}
+          <Text dimColor>Enter/空格: 切换/选择 · Esc: 关闭</Text>
+        </Box>
+      ) : null}
       {showMenu ? (
         <Box flexDirection="column" marginBottom={1}>
           {slashMenu.slice(0, 8).map((item, idx) => (
@@ -765,6 +838,24 @@ export function toggleSkillSelection(skills: SkillInfo[], skill: SkillInfo): Ski
   return isSkillSelected(skills, skill)
     ? skills.filter((item) => item.name !== skill.name)
     : [...skills, skill];
+}
+
+type ThinkingOption = {
+  kind: "toggle" | "effort";
+  label: string;
+  detail?: string;
+  value?: ReasoningEffort;
+};
+
+function buildThinkingOptions(
+  activeThinking: boolean,
+  activeReasoningEffort: ReasoningEffort
+): ThinkingOption[] {
+  return [
+    { kind: "toggle", label: activeThinking ? "关闭思考模式" : "开启思考模式", detail: activeThinking ? "当前已开启" : "当前已关闭" },
+    { kind: "effort", label: "努力度: max", detail: "最大推理深度", value: "max" },
+    { kind: "effort", label: "努力度: high", detail: "深度推理，略低于 max", value: "high" },
+  ];
 }
 
 export function removeCurrentSlashToken(state: PromptBufferState): PromptBufferState {

@@ -154,6 +154,31 @@ export function updateActiveModelInSettings(modelName: string): boolean {
   }
 }
 
+/**
+ * Persist thinkingEnabled and reasoningEffort to settings.json.
+ * Returns true on success, false on failure.
+ */
+export function updateThinkingConfigInSettings(
+  thinkingEnabled: boolean,
+  reasoningEffort?: ReasoningEffort
+): boolean {
+  try {
+    const settingsPath = path.join(os.homedir(), ".deepseek-code", "settings.json");
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as DeepcodingSettings;
+
+    settings.thinkingEnabled = thinkingEnabled;
+    if (reasoningEffort) {
+      settings.reasoningEffort = reasoningEffort;
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

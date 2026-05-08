@@ -16,7 +16,7 @@ import {
   type SkillInfo,
   type UserPromptContent
 } from "../session";
-import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, type DeepcodingSettings, type PricingConfig } from "../settings";
+import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ReasoningEffort } from "../settings";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
 import { SessionList } from "./SessionList";
@@ -55,7 +55,7 @@ function clearTerminal(): void {
   // Use a large count (>=3000) to exhaust Windows Terminal's large default
   // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
   const rows = process.stdout.rows || 40;
-  directTerminalWrite("\n".repeat(Math.max(rows * 30, 3000)));
+  directTerminalWrite("\n".repeat(Math.max(rows * 30, 10000)));
 
   directTerminalWrite("\u001B[2J\u001B[H");
 }
@@ -114,6 +114,10 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const [activeModel, setActiveModel] = useState<string>(initialSettings.model);
   const modelList = useMemo(() => getAvailableModelNames(readSettings()), []);
 
+  // Thinking mode state
+  const [activeThinking, setActiveThinking] = useState<boolean>(initialSettings.thinkingEnabled);
+  const [activeReasoningEffort, setActiveReasoningEffort] = useState<ReasoningEffort>(initialSettings.reasoningEffort);
+
   const messagesRef = useRef<SessionMessage[]>([]);
   messagesRef.current = messages;
   const activeModelRef = useRef(activeModel);
@@ -170,7 +174,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   }, []);
 
   function loadVisibleMessages(manager: SessionManager, sessionId: string): SessionMessage[] {
-    return manager.listSessionMessages(sessionId).filter((m) => m.visible);
+    return manager.listSessionMessages(sessionId);
   }
 
   function refreshSessionsList(): void {
@@ -190,6 +194,16 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     const ok = updateActiveModelInSettings(modelName);
     if (ok) {
       setActiveModel(modelName);
+    }
+  }, []);
+
+  const handleThinkingChange = useCallback((thinkingEnabled: boolean, reasoningEffort?: ReasoningEffort) => {
+    const ok = updateThinkingConfigInSettings(thinkingEnabled, reasoningEffort);
+    if (ok) {
+      setActiveThinking(thinkingEnabled);
+      if (reasoningEffort) {
+        setActiveReasoningEffort(reasoningEffort);
+      }
     }
   }, []);
 
@@ -345,17 +359,25 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const shouldShowQuestionPrompt = Boolean(
     pendingQuestion && !dismissedQuestionIds.has(pendingQuestion.messageId)
   );
-  // 只保留最新的步骤指示器，历史指示器隐藏
+  // 只保留最新的步骤指示器和最新的 tool 消息，历史指示器和历史 tool 消息隐藏
   const displayMessages = useMemo(() => {
     let lastStepIdx = -1;
+    let lastToolIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].meta?.isStepIndicator) {
+      if (messages[i].meta?.isStepIndicator && lastStepIdx === -1) {
         lastStepIdx = i;
-        break;
       }
+      if (messages[i].role === "tool" && lastToolIdx === -1) {
+        lastToolIdx = i;
+      }
+      if (lastStepIdx !== -1 && lastToolIdx !== -1) break;
     }
-    if (lastStepIdx === -1) return messages;
-    return messages.filter((m, i) => !m.meta?.isStepIndicator || i === lastStepIdx);
+    if (lastStepIdx === -1 && lastToolIdx === -1) return messages;
+    return messages.filter((m, i) => {
+      if (m.meta?.isStepIndicator && i !== lastStepIdx) return false;
+      if (m.role === "tool" && i !== lastToolIdx) return false;
+      return true;
+    });
   }, [messages]);
   // Recalculated every render so the elapsed-time counter ticks in real time.
   const loadingText = busy
@@ -364,7 +386,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
 
   // Dynamic settings: re-resolve when activeModel changes (model persisting to disk
   // means resolveCurrentSettings picks up the new model + its per-model overrides)
-  const welcomeSettings = useMemo(() => resolveCurrentSettings(), [activeModel]);
+  const welcomeSettings = useMemo(() => resolveCurrentSettings(), [activeModel, activeThinking, activeReasoningEffort]);
   pricingRef.current = welcomeSettings.pricing;
 
   const handleQuestionAnswers = useCallback(
@@ -447,6 +469,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           activeModel={activeModel}
           modelList={modelList}
           onModelChange={(name) => void handleModelChange(name)}
+          activeThinking={activeThinking}
+          activeReasoningEffort={activeReasoningEffort}
+          onThinkingChange={(enabled, effort) => void handleThinkingChange(enabled, effort)}
           promptHistory={promptHistory}
           busy={busy}
           loadingText={loadingText}
@@ -646,7 +671,7 @@ export function createOpenAIClient(overrideModel?: string): {
     apiKey: settings.apiKey,
     baseURL: settings.baseURL || undefined,
     maxRetries: 2,
-    timeout: 120_000
+    timeout: 300_000
   });
   return {
     client,

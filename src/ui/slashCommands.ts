@@ -1,6 +1,6 @@
 import type { SkillInfo } from "../session";
 
-export type SlashCommandKind = "skill" | "skills" | "model" | "new" | "resume" | "exit";
+export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "new" | "resume" | "exit";
 
 export type SlashCommandItem = {
   kind: SlashCommandKind;
@@ -36,6 +36,12 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
     description: "切换当前模型"
   },
   {
+    kind: "thinking",
+    name: "thinking",
+    label: "/thinking",
+    description: "切换思考模式（开启/关闭）"
+  },
+  {
     kind: "exit",
     name: "exit",
     label: "/exit",
@@ -63,7 +69,7 @@ export function filterSlashCommands(
   }
   const query = token.slice(1).toLowerCase();
   if (!query) {
-    // 裸 / 只显示内置命令（/new /resume /skills /model /exit），
+    // 裸 / 只显示内置命令（/new /resume /skills /model /thinking /exit），
     // 不显示技能项。输入字母后才展示匹配的技能，减少终端布局波动
     // 从而避免回滚缓冲区中的旧对话消息被滚动暴露
     return items.filter((item) => item.kind !== "skill");
