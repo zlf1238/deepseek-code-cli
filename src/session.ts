@@ -1259,7 +1259,7 @@ ${skillMd}
 
     return {
       ...message,
-      visible: typeof message.content === "string" ? !this.isInvisibleExecution(message.content) : message.visible,
+      visible: typeof message.visible === "boolean" ? message.visible : (typeof message.content === "string" ? !this.isInvisibleExecution(message.content) : false),
       meta: nextMeta
     };
   }
