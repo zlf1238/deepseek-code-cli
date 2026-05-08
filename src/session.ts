@@ -7,7 +7,7 @@ import type { ChatCompletionMessageParam, ChatCompletionContentPart } from "open
 import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
 import { getContextWindowCapacity, selectModelForIteration } from "./model-capabilities";
-import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage, AGENT_DRIFT_GUARD_SKILL } from "./prompt";
+import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 
 const MAX_SESSION_ENTRIES = 50;
@@ -729,10 +729,6 @@ The candidate skills are as follows:\n\n`;
       const instructionsMessage = this.buildSystemMessage(sessionId, agentInstructions);
       this.appendSessionMessage(sessionId, instructionsMessage);
     }
-
-    const defaultSkillPrompt = `Use the skill document below to assist the user:\n<agent-drift-guard-skill>${AGENT_DRIFT_GUARD_SKILL}</agent-drift-guard-skill>`;
-    const defaultSkillMessage = this.buildSystemMessage(sessionId, defaultSkillPrompt);
-    this.appendSessionMessage(sessionId, defaultSkillMessage);
 
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
     this.appendSessionMessage(sessionId, userMessage);
