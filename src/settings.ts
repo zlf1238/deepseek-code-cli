@@ -21,6 +21,10 @@ export type ModelOverride = {
 export type PricingConfig = {
   inputPricePerMillion?: number;
   outputPricePerMillion?: number;
+  /** 缓存命中的输入价格（每百万 token），如未设置则使用 inputPricePerMillion */
+  inputCacheHitPricePerMillion?: number;
+  /** 缓存未命中的输入价格（每百万 token），如未设置则使用 inputPricePerMillion */
+  inputCacheMissPricePerMillion?: number;
 };
 
 export type DeepcodingSettings = {
@@ -97,9 +101,26 @@ export function resolveSettings(
     return 0;
   };
 
+  const resolveCachePrice = (field: "inputCacheHitPricePerMillion" | "inputCacheMissPricePerMillion"): number => {
+    // 1. Per-model pricing
+    const modelPrice = modelOverride?.pricing?.[field];
+    if (typeof modelPrice === "number" && !Number.isNaN(modelPrice)) {
+      return modelPrice;
+    }
+    // 2. Global pricing
+    const globalPrice = settings?.pricing?.[field];
+    if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
+      return globalPrice;
+    }
+    // 3. Fall back to inputPricePerMillion (for cache fields, also try the resolved input price)
+    return 0;
+  };
+
   const pricing: Required<PricingConfig> = {
     inputPricePerMillion: resolvePrice("inputPricePerMillion"),
     outputPricePerMillion: resolvePrice("outputPricePerMillion"),
+    inputCacheHitPricePerMillion: resolveCachePrice("inputCacheHitPricePerMillion"),
+    inputCacheMissPricePerMillion: resolveCachePrice("inputCacheMissPricePerMillion"),
   };
 
   return {

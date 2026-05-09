@@ -9,6 +9,8 @@ import {
   getTotalTokens,
   getPromptTokens,
   getCompletionTokens,
+  getPromptCacheHitTokens,
+  getPromptCacheMissTokens,
   type LlmStreamProgress,
   type SessionEntry,
   type SessionMessage,
@@ -122,7 +124,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   messagesRef.current = messages;
   const activeModelRef = useRef(activeModel);
   activeModelRef.current = activeModel;
-  const pricingRef = useRef<Required<PricingConfig>>({ inputPricePerMillion: 0, outputPricePerMillion: 0 });
+  const pricingRef = useRef<Required<PricingConfig>>({ inputPricePerMillion: 0, outputPricePerMillion: 0, inputCacheHitPricePerMillion: 0, inputCacheMissPricePerMillion: 0 });
 
   const sessionManager = useMemo(() => {
     return new SessionManager({
@@ -285,6 +287,8 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       const totalTokensBefore = sessionBefore ? getTotalTokens(sessionBefore.usage) : 0;
       const promptTokensBefore = sessionBefore ? getPromptTokens(sessionBefore.usage) : 0;
       const completionTokensBefore = sessionBefore ? getCompletionTokens(sessionBefore.usage) : 0;
+      const cacheHitBefore = sessionBefore ? getPromptCacheHitTokens(sessionBefore.usage) : 0;
+      const cacheMissBefore = sessionBefore ? getPromptCacheMissTokens(sessionBefore.usage) : 0;
 
       setBusy(true);
       setErrorLine(null);
@@ -301,8 +305,11 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             const roundPromptTokens = Math.max(0, getPromptTokens(session.usage) - promptTokensBefore);
             const roundCompletionTokens = Math.max(0, getCompletionTokens(session.usage) - completionTokensBefore);
             const roundTokens = Math.max(0, totalTokens - totalTokensBefore);
+            const roundCacheHit = Math.max(0, getPromptCacheHitTokens(session.usage) - cacheHitBefore);
+            const roundCacheMiss = Math.max(0, getPromptCacheMissTokens(session.usage) - cacheMissBefore);
             const summaryMessage = buildCompletionSummary(
-              session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens, pricingRef.current
+              session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens,
+              roundCacheHit, roundCacheMiss, pricingRef.current
             );
             dispatchMessages({ type: "appendMessage", message: summaryMessage });
           }
@@ -511,6 +518,8 @@ export function buildCompletionSummary(
   roundTokens: number,
   roundPromptTokens: number,
   roundCompletionTokens: number,
+  roundCacheHitTokens: number,
+  roundCacheMissTokens: number,
   pricing: Required<PricingConfig>
 ): SessionMessage {
   const now = new Date().toISOString();
@@ -540,10 +549,58 @@ export function buildCompletionSummary(
   parts.push(`耗时: ${elapsed}`);
   parts.push(`token: ${formatTokenCount(roundTokens)}`);
 
-  const cost = (roundPromptTokens / 1_000_000) * pricing.inputPricePerMillion
-    + (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
+  // Cache hit rate
+  const cacheTotal = roundCacheHitTokens + roundCacheMissTokens;
+  if (cacheTotal > 0) {
+    const hitPct = Math.round((roundCacheHitTokens / cacheTotal) * 100);
+    parts.push(`缓存命中: ${hitPct}%`);
+  }
+
+  // Cost calculation with cache-aware pricing
+  const cacheHitPrice = pricing.inputCacheHitPricePerMillion > 0
+    ? pricing.inputCacheHitPricePerMillion
+    : pricing.inputPricePerMillion;
+  const cacheMissPrice = pricing.inputCacheMissPricePerMillion > 0
+    ? pricing.inputCacheMissPricePerMillion
+    : pricing.inputPricePerMillion;
+
+  let cost = 0;
+  // Cache-aware input cost
+  cost += (roundCacheHitTokens / 1_000_000) * cacheHitPrice;
+  cost += (roundCacheMissTokens / 1_000_000) * cacheMissPrice;
+  // Non-cache input tokens (if any) charged at inputPricePerMillion
+  const nonCachePromptTokens = Math.max(0, roundPromptTokens - cacheTotal);
+  cost += (nonCachePromptTokens / 1_000_000) * pricing.inputPricePerMillion;
+  // Output cost
+  cost += (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
+
   if (cost > 0) {
     parts.push(`费用: ¥${formatCost(cost)}`);
+  }
+
+  // Per-model cost breakdown
+  if (session.usageByModel) {
+    const modelNames = Object.keys(session.usageByModel).sort();
+    if (modelNames.length > 1) {
+      const modelCosts: string[] = [];
+      for (const modelName of modelNames) {
+        const modelUsage = session.usageByModel[modelName];
+        const modelInputTokens = getPromptTokens(modelUsage);
+        const modelOutputTokens = getCompletionTokens(modelUsage);
+        const modelCacheHit = getPromptCacheHitTokens(modelUsage);
+        const modelCacheMiss = getPromptCacheMissTokens(modelUsage);
+        const modelCost = (modelCacheHit / 1_000_000) * cacheHitPrice
+          + (modelCacheMiss / 1_000_000) * cacheMissPrice
+          + (Math.max(0, modelInputTokens - modelCacheHit - modelCacheMiss) / 1_000_000) * pricing.inputPricePerMillion
+          + (modelOutputTokens / 1_000_000) * pricing.outputPricePerMillion;
+        if (modelCost > 0) {
+          modelCosts.push(`${modelName}=¥${formatCost(modelCost)}`);
+        }
+      }
+      if (modelCosts.length > 0) {
+        parts.push(`模型费用: ${modelCosts.join(" + ")}`);
+      }
+    }
   }
 
   return {

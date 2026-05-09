@@ -69,6 +69,30 @@ export function getCompletionTokens(usage: unknown | null | undefined): number {
   return typeof completionTokens === "number" ? completionTokens : 0;
 }
 
+export function getPromptCacheHitTokens(usage: unknown | null | undefined): number {
+  if (!isUsageRecord(usage)) {
+    return 0;
+  }
+  const cacheHit = usage.prompt_cache_hit_tokens;
+  return typeof cacheHit === "number" ? cacheHit : 0;
+}
+
+export function getPromptCacheMissTokens(usage: unknown | null | undefined): number {
+  if (!isUsageRecord(usage)) {
+    return 0;
+  }
+  const cacheMiss = usage.prompt_cache_miss_tokens;
+  return typeof cacheMiss === "number" ? cacheMiss : 0;
+}
+
+export function getCacheHitRate(usage: unknown | null | undefined): number {
+  const hit = getPromptCacheHitTokens(usage);
+  const miss = getPromptCacheMissTokens(usage);
+  const total = hit + miss;
+  if (total === 0) return 0;
+  return hit / total;
+}
+
 function formatTokenCount(tokens: number): string {
   if (tokens < 1000) return String(tokens);
   if (tokens < 10000) return `${(tokens / 1000).toFixed(1)}k`;
@@ -94,6 +118,8 @@ export type SessionEntry = {
   status: SessionStatus;
   failReason: string | null;
   usage: unknown | null;
+  /** 按模型名拆分的 usage 累计数据，用于区分不同模型的 token 消耗和费用 */
+  usageByModel?: Record<string, unknown>;
   activeTokens: number;
   compactThreshold: number;
   createTime: string;
@@ -967,14 +993,20 @@ ${skillMd}
         }
 
         const responseUsage = response.usage ?? null;
-        this.updateSessionEntry(sessionId, (entry) => ({
-          ...entry,
-          assistantReply: content,
-          assistantThinking: thinking,
-          assistantRefusal: refusal,
-          toolCalls,
-          usage: accumulateUsage(entry.usage, responseUsage),
-          activeTokens: getTotalTokens(responseUsage),
+        const iterationModel = currentModel;
+        this.updateSessionEntry(sessionId, (entry) => {
+          const currentByModel = entry.usageByModel ?? {};
+          const updatedByModel: Record<string, unknown> = { ...currentByModel };
+          updatedByModel[iterationModel] = accumulateUsage(currentByModel[iterationModel] ?? null, responseUsage);
+          return {
+            ...entry,
+            assistantReply: content,
+            assistantThinking: thinking,
+            assistantRefusal: refusal,
+            toolCalls,
+            usage: accumulateUsage(entry.usage, responseUsage),
+            usageByModel: updatedByModel,
+            activeTokens: getTotalTokens(responseUsage),
           status: refusal
             ? "failed"
             : waitingForUser
@@ -984,7 +1016,8 @@ ${skillMd}
                 : "completed",
           failReason: refusal ? refusal : entry.failReason,
           updateTime: new Date().toISOString()
-        }));
+        };
+      });
 
         if (refusal) {
           return;

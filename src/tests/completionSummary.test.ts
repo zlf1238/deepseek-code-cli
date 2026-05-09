@@ -8,8 +8,18 @@ import type { PricingConfig } from "../settings";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const NO_PRICING: Required<PricingConfig> = { inputPricePerMillion: 0, outputPricePerMillion: 0 };
-const WITH_PRICING: Required<PricingConfig> = { inputPricePerMillion: 0.27, outputPricePerMillion: 1.10 };
+const NO_PRICING: Required<PricingConfig> = {
+  inputPricePerMillion: 0, outputPricePerMillion: 0,
+  inputCacheHitPricePerMillion: 0, inputCacheMissPricePerMillion: 0,
+};
+const WITH_PRICING: Required<PricingConfig> = {
+  inputPricePerMillion: 0.27, outputPricePerMillion: 1.10,
+  inputCacheHitPricePerMillion: 0, inputCacheMissPricePerMillion: 0,
+};
+const WITH_CACHE_PRICING: Required<PricingConfig> = {
+  inputPricePerMillion: 0.27, outputPricePerMillion: 1.10,
+  inputCacheHitPricePerMillion: 0.07, inputCacheMissPricePerMillion: 0.27,
+};
 
 // ---------------------------------------------------------------------------
 // formatElapsed
@@ -62,7 +72,7 @@ test("buildCompletionSummary includes elapsed time and token count for completed
   const session = makeSession({
     usage: { total_tokens: 1234 }
   });
-  const msg = buildCompletionSummary(session, 5230, 1234, 1000, 234, NO_PRICING);
+  const msg = buildCompletionSummary(session, 5230, 1234, 1000, 234, 0, 0, NO_PRICING);
 
   assert.equal(msg.role, "system");
   assert.equal(msg.visible, true);
@@ -78,7 +88,7 @@ test("buildCompletionSummary shows failed status in red", () => {
     status: "failed",
     usage: { total_tokens: 500 }
   });
-  const msg = buildCompletionSummary(session, 3000, 500, 400, 100, NO_PRICING);
+  const msg = buildCompletionSummary(session, 3000, 500, 400, 100, 0, 0, NO_PRICING);
 
   assert.ok(msg.content?.includes("✗ failed"));
   assert.equal((msg.messageParams as any)?.statusColor, "red");
@@ -89,7 +99,7 @@ test("buildCompletionSummary shows interrupted status in yellow", () => {
     status: "interrupted",
     usage: { total_tokens: 800 }
   });
-  const msg = buildCompletionSummary(session, 15000, 800, 600, 200, NO_PRICING);
+  const msg = buildCompletionSummary(session, 15000, 800, 600, 200, 0, 0, NO_PRICING);
 
   assert.ok(msg.content?.includes("⚠ interrupted"));
   assert.equal((msg.messageParams as any)?.statusColor, "yellow");
@@ -97,7 +107,7 @@ test("buildCompletionSummary shows interrupted status in yellow", () => {
 
 test("buildCompletionSummary omits cost when pricing is zero", () => {
   const session = makeSession({ status: "completed" });
-  const msg = buildCompletionSummary(session, 1000, 1000, 800, 200, NO_PRICING);
+  const msg = buildCompletionSummary(session, 1000, 1000, 800, 200, 0, 0, NO_PRICING);
 
   assert.ok(msg.content?.includes("✓ completed"));
   assert.ok(msg.content?.includes("token: 1.0k"));
@@ -106,9 +116,9 @@ test("buildCompletionSummary omits cost when pricing is zero", () => {
 
 test("buildCompletionSummary calculates cost with pricing", () => {
   const session = makeSession({ status: "completed" });
-  // 800k input × 0.27/1M + 200k output × 1.10/1M
-  // = 0.216 + 0.220 = 0.436
-  const msg = buildCompletionSummary(session, 5000, 1_000_000, 800_000, 200_000, WITH_PRICING);
+  // 800k input at 0.27/1M + 200k output at 1.10/1M = 0.216 + 0.220 = 0.436
+  // No cache tokens, all input billed at inputPricePerMillion
+  const msg = buildCompletionSummary(session, 5000, 1_000_000, 800_000, 200_000, 0, 0, WITH_PRICING);
 
   assert.ok(msg.content?.includes("token: 1M"));
   assert.ok(msg.content?.includes("费用: ¥0.436"));
@@ -116,8 +126,8 @@ test("buildCompletionSummary calculates cost with pricing", () => {
 
 test("buildCompletionSummary handles large token counts with pricing", () => {
   const session = makeSession({ status: "completed" });
-  // 1M input × 0.27 + 2M output × 1.10 = 0.27 + 2.20 = 2.47
-  const msg = buildCompletionSummary(session, 300000, 3_000_000, 1_000_000, 2_000_000, WITH_PRICING);
+  // 1M input at 0.27 + 2M output at 1.10 = 0.27 + 2.20 = 2.47
+  const msg = buildCompletionSummary(session, 300000, 3_000_000, 1_000_000, 2_000_000, 0, 0, WITH_PRICING);
 
   assert.ok(msg.content?.includes("token: 3M"));
   assert.ok(msg.content?.includes("费用: ¥2.47"));
@@ -125,15 +135,101 @@ test("buildCompletionSummary handles large token counts with pricing", () => {
 
 test("buildCompletionSummary uses the correct session id", () => {
   const session = makeSession({ id: "abc-123" });
-  const msg = buildCompletionSummary(session, 500, 100, 80, 20, NO_PRICING);
+  const msg = buildCompletionSummary(session, 500, 100, 80, 20, 0, 0, NO_PRICING);
 
   assert.equal(msg.sessionId, "abc-123");
 });
 
 test("buildCompletionSummary generates a unique id per call", () => {
   const session = makeSession();
-  const msg1 = buildCompletionSummary(session, 100, 50, 40, 10, NO_PRICING);
-  const msg2 = buildCompletionSummary(session, 200, 50, 40, 10, NO_PRICING);
+  const msg1 = buildCompletionSummary(session, 100, 50, 40, 10, 0, 0, NO_PRICING);
+  const msg2 = buildCompletionSummary(session, 200, 50, 40, 10, 0, 0, NO_PRICING);
 
   assert.notEqual(msg1.id, msg2.id);
+});
+
+// ---------------------------------------------------------------------------
+// Cache hit rate and cache-aware pricing tests
+// ---------------------------------------------------------------------------
+
+test("buildCompletionSummary shows cache hit rate when cache tokens exist", () => {
+  const session = makeSession({ status: "completed" });
+  // 70 cache hit, 30 cache miss = 70% hit rate
+  const msg = buildCompletionSummary(session, 5000, 1000, 100, 0, 70, 30, NO_PRICING);
+
+  assert.ok(msg.content?.includes("缓存命中: 70%"));
+});
+
+test("buildCompletionSummary omits cache hit rate when no cache tokens", () => {
+  const session = makeSession({ status: "completed" });
+  const msg = buildCompletionSummary(session, 1000, 500, 400, 100, 0, 0, NO_PRICING);
+
+  assert.ok(!msg.content?.includes("缓存命中"));
+});
+
+test("buildCompletionSummary uses cache-aware pricing when configured", () => {
+  const session = makeSession({ status: "completed" });
+  // 100k cache hit at 0.07/1M + 100k cache miss at 0.27/1M + 200k output at 1.10/1M
+  // = 0.007 + 0.027 + 0.220 = 0.254
+  const msg = buildCompletionSummary(session, 5000, 400_000, 200_000, 200_000, 100_000, 100_000, WITH_CACHE_PRICING);
+
+  assert.ok(msg.content?.includes("缓存命中: 50%"));
+  assert.ok(msg.content?.includes("费用: ¥0.254"));
+});
+
+test("buildCompletionSummary falls back to inputPricePerMillion when cache prices not set", () => {
+  const session = makeSession({ status: "completed" });
+  // WITH_PRICING has cache prices = 0, so falls back to inputPricePerMillion = 0.27
+  // 100k cache hit + 100k cache miss = 200k input at 0.27/1M + 200k output at 1.10/1M
+  // = 0.054 + 0.220 = 0.274
+  const msg = buildCompletionSummary(session, 5000, 400_000, 200_000, 200_000, 100_000, 100_000, WITH_PRICING);
+
+  assert.ok(msg.content?.includes("缓存命中: 50%"));
+  assert.ok(msg.content?.includes("费用: ¥0.274"));
+});
+
+// ---------------------------------------------------------------------------
+// Per-model cost breakdown tests
+// ---------------------------------------------------------------------------
+
+test("buildCompletionSummary shows per-model cost when usageByModel has multiple models", () => {
+  const session = makeSession({
+    status: "completed",
+    usageByModel: {
+      "deepseek-v4-pro": {
+        prompt_tokens: 100_000,
+        completion_tokens: 50_000,
+        total_tokens: 150_000,
+        prompt_cache_hit_tokens: 30_000,
+        prompt_cache_miss_tokens: 70_000,
+      },
+      "deepseek-v4-flash": {
+        prompt_tokens: 20_000,
+        completion_tokens: 10_000,
+        total_tokens: 30_000,
+        prompt_cache_hit_tokens: 5_000,
+        prompt_cache_miss_tokens: 15_000,
+      },
+    }
+  });
+  // deepseek-v4-pro: (30k*0.07 + 70k*0.27)/1M + 50k*1.10/1M = 0.0021+0.0189+0.055 = 0.076
+  // deepseek-v4-flash: (5k*0.07 + 15k*0.27)/1M + 10k*1.10/1M = 0.00035+0.00405+0.011 = 0.0154
+  // Total: ~0.0914, but we check per-model parts
+  const msg = buildCompletionSummary(session, 5000, 180_000, 120_000, 60_000, 35_000, 85_000, WITH_CACHE_PRICING);
+
+  assert.ok(msg.content?.includes("模型费用:"));
+  assert.ok(msg.content?.includes("deepseek-v4-pro"));
+  assert.ok(msg.content?.includes("deepseek-v4-flash"));
+});
+
+test("buildCompletionSummary does not show model breakdown for single model", () => {
+  const session = makeSession({
+    status: "completed",
+    usageByModel: {
+      "deepseek-v4-pro": { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+    }
+  });
+  const msg = buildCompletionSummary(session, 1000, 150, 100, 50, 0, 0, NO_PRICING);
+
+  assert.ok(!msg.content?.includes("模型费用:"));
 });
