@@ -192,44 +192,76 @@ test("buildCompletionSummary falls back to inputPricePerMillion when cache price
 // Per-model cost breakdown tests
 // ---------------------------------------------------------------------------
 
-test("buildCompletionSummary shows per-model cost when usageByModel has multiple models", () => {
-  const session = makeSession({
-    status: "completed",
-    usageByModel: {
-      "deepseek-v4-pro": {
-        prompt_tokens: 100_000,
-        completion_tokens: 50_000,
-        total_tokens: 150_000,
-        prompt_cache_hit_tokens: 30_000,
-        prompt_cache_miss_tokens: 70_000,
-      },
-      "deepseek-v4-flash": {
-        prompt_tokens: 20_000,
-        completion_tokens: 10_000,
-        total_tokens: 30_000,
-        prompt_cache_hit_tokens: 5_000,
-        prompt_cache_miss_tokens: 15_000,
-      },
-    }
-  });
-  // deepseek-v4-pro: (30k*0.07 + 70k*0.27)/1M + 50k*1.10/1M = 0.0021+0.0189+0.055 = 0.076
-  // deepseek-v4-flash: (5k*0.07 + 15k*0.27)/1M + 10k*1.10/1M = 0.00035+0.00405+0.011 = 0.0154
-  // Total: ~0.0914, but we check per-model parts
-  const msg = buildCompletionSummary(session, 5000, 180_000, 120_000, 60_000, 35_000, 85_000, WITH_CACHE_PRICING);
+/** Shared mock for per-model tests — resolves flash at a cheaper rate. */
+function mockResolvePricing(modelName: string): Required<PricingConfig> {
+  if (modelName === "deepseek-v4-flash") {
+    return {
+      inputPricePerMillion: 0.05,
+      outputPricePerMillion: 0.20,
+      inputCacheHitPricePerMillion: 0.01,
+      inputCacheMissPricePerMillion: 0.05,
+    };
+  }
+  // pro and everything else
+  return { ...WITH_CACHE_PRICING };
+}
+
+test("buildCompletionSummary shows per-model cost when usageByModelDiff has multiple models", () => {
+  const session = makeSession({ status: "completed" });
+  // Round increment diffs (not cumulative session data!)
+  const usageByModelDiff: Record<string, Record<string, number>> = {
+    "deepseek-v4-pro": {
+      prompt_tokens: 100_000,
+      completion_tokens: 50_000,
+      prompt_cache_hit_tokens: 30_000,
+      prompt_cache_miss_tokens: 70_000,
+    },
+    "deepseek-v4-flash": {
+      prompt_tokens: 20_000,
+      completion_tokens: 10_000,
+      prompt_cache_hit_tokens: 5_000,
+      prompt_cache_miss_tokens: 15_000,
+    },
+  };
+  // deepseek-v4-pro (WITH_CACHE_PRICING): (30k*0.07 + 70k*0.27 + 50k*1.10)/1M = 0.0021+0.0189+0.055 = 0.076
+  // deepseek-v4-flash (mock rates): (5k*0.01 + 15k*0.05 + 10k*0.20)/1M = 0.00005+0.00075+0.002 = 0.0028
+  const msg = buildCompletionSummary(
+    session, 5000, 180_000, 120_000, 60_000, 35_000, 85_000, WITH_CACHE_PRICING,
+    usageByModelDiff, mockResolvePricing,
+  );
 
   assert.ok(msg.content?.includes("模型费用:"));
   assert.ok(msg.content?.includes("deepseek-v4-pro"));
   assert.ok(msg.content?.includes("deepseek-v4-flash"));
 });
 
-test("buildCompletionSummary does not show model breakdown for single model", () => {
-  const session = makeSession({
-    status: "completed",
-    usageByModel: {
-      "deepseek-v4-pro": { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
-    }
-  });
-  const msg = buildCompletionSummary(session, 1000, 150, 100, 50, 0, 0, NO_PRICING);
+test("buildCompletionSummary does not show model breakdown for single model diff", () => {
+  const session = makeSession({ status: "completed" });
+  const usageByModelDiff: Record<string, Record<string, number>> = {
+    "deepseek-v4-pro": { prompt_tokens: 100, completion_tokens: 50 },
+  };
+  const msg = buildCompletionSummary(
+    session, 1000, 150, 100, 50, 0, 0, NO_PRICING,
+    usageByModelDiff, mockResolvePricing,
+  );
 
   assert.ok(!msg.content?.includes("模型费用:"));
+});
+
+test("buildCompletionSummary uses correct per-model rates for flash vs pro", () => {
+  const session = makeSession({ status: "completed" });
+  const usageByModelDiff: Record<string, Record<string, number>> = {
+    "deepseek-v4-pro": { prompt_tokens: 100_000, completion_tokens: 50_000 },
+    "deepseek-v4-flash": { prompt_tokens: 80_000, completion_tokens: 30_000 },
+  };
+  const msg = buildCompletionSummary(
+    session, 5000, 260_000, 180_000, 80_000, 0, 0, WITH_CACHE_PRICING,
+    usageByModelDiff, mockResolvePricing,
+  );
+  // pro: 100k * 0.27/1M + 50k * 1.10/1M = 0.027 + 0.055 = 0.082
+  // flash: 80k * 0.05/1M + 30k * 0.20/1M = 0.004 + 0.006 = 0.010
+  assert.ok(msg.content?.includes("deepseek-v4-pro"));
+  assert.ok(msg.content?.includes("deepseek-v4-flash"));
+  // Verify that pro cost ~0.082 and flash cost ~0.010 appear in the breakdown
+  assert.ok(msg.content?.includes("模型费用:"));
 });

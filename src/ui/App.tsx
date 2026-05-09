@@ -290,6 +290,22 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       const cacheHitBefore = sessionBefore ? getPromptCacheHitTokens(sessionBefore.usage) : 0;
       const cacheMissBefore = sessionBefore ? getPromptCacheMissTokens(sessionBefore.usage) : 0;
 
+      // Deep-clone usageByModel numeric fields before the round,
+      // so we can later compute the per-model round increment (Bug 1 fix).
+      const usageByModelBefore: Record<string, Record<string, number>> = {};
+      const rawByModelBefore = sessionBefore?.usageByModel;
+      if (rawByModelBefore && typeof rawByModelBefore === "object" && !Array.isArray(rawByModelBefore)) {
+        for (const [mn, mu] of Object.entries(rawByModelBefore)) {
+          if (mu && typeof mu === "object" && !Array.isArray(mu)) {
+            const flat: Record<string, number> = {};
+            for (const [k, v] of Object.entries(mu as Record<string, unknown>)) {
+              if (typeof v === "number") flat[k] = v;
+            }
+            if (Object.keys(flat).length > 0) usageByModelBefore[mn] = flat;
+          }
+        }
+      }
+
       setBusy(true);
       setErrorLine(null);
       setRunningProcesses(null);
@@ -307,9 +323,31 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             const roundTokens = Math.max(0, totalTokens - totalTokensBefore);
             const roundCacheHit = Math.max(0, getPromptCacheHitTokens(session.usage) - cacheHitBefore);
             const roundCacheMiss = Math.max(0, getPromptCacheMissTokens(session.usage) - cacheMissBefore);
+
+            // Compute per-model round increment by subtracting before snapshot (Bug 1 fix)
+            const usageByModelDiff: Record<string, Record<string, number>> = {};
+            const rawByModelAfter = session.usageByModel;
+            if (rawByModelAfter && typeof rawByModelAfter === "object" && !Array.isArray(rawByModelAfter)) {
+              for (const [mn, mu] of Object.entries(rawByModelAfter)) {
+                if (!mu || typeof mu !== "object" || Array.isArray(mu)) continue;
+                const afterRecord = mu as Record<string, unknown>;
+                const beforeRecord = usageByModelBefore[mn];
+                const diff: Record<string, number> = {};
+                for (const [k, v] of Object.entries(afterRecord)) {
+                  if (typeof v === "number") {
+                    const bv = beforeRecord && typeof beforeRecord[k] === "number" ? beforeRecord[k] : 0;
+                    const d = v - bv;
+                    if (d > 0) diff[k] = d;
+                  }
+                }
+                if (Object.keys(diff).length > 0) usageByModelDiff[mn] = diff;
+              }
+            }
+
             const summaryMessage = buildCompletionSummary(
               session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens,
-              roundCacheHit, roundCacheMiss, pricingRef.current
+              roundCacheHit, roundCacheMiss, pricingRef.current,
+              usageByModelDiff, resolveModelPricing
             );
             dispatchMessages({ type: "appendMessage", message: summaryMessage });
           }
@@ -520,7 +558,11 @@ export function buildCompletionSummary(
   roundCompletionTokens: number,
   roundCacheHitTokens: number,
   roundCacheMissTokens: number,
-  pricing: Required<PricingConfig>
+  pricing: Required<PricingConfig>,
+  /** 本轮每个模型的增量 usage（非累计值），用于模型拆分计费 */
+  usageByModelDiff?: Record<string, Record<string, number>>,
+  /** 根据模型名解析对应费率的回调；缺省时全部使用 primary pricing（Bug 2 修复需要传此参数） */
+  resolveModelPricing?: (modelName: string) => Required<PricingConfig>,
 ): SessionMessage {
   const now = new Date().toISOString();
   const elapsed = formatElapsed(elapsedMs);
@@ -578,21 +620,33 @@ export function buildCompletionSummary(
     parts.push(`费用: ¥${formatCost(cost)}`);
   }
 
-  // Per-model cost breakdown
-  if (session.usageByModel) {
-    const modelNames = Object.keys(session.usageByModel).sort();
+  // Per-model cost breakdown — uses round increment (usageByModelDiff) to avoid
+  // double-counting history (Bug 1 fix), and per-model pricing to avoid rate
+  // mismatch when auto-switching between pro and flash (Bug 2 fix).
+  if (usageByModelDiff && resolveModelPricing) {
+    const modelNames = Object.keys(usageByModelDiff).sort();
     if (modelNames.length > 1) {
       const modelCosts: string[] = [];
       for (const modelName of modelNames) {
-        const modelUsage = session.usageByModel[modelName];
-        const modelInputTokens = getPromptTokens(modelUsage);
-        const modelOutputTokens = getCompletionTokens(modelUsage);
-        const modelCacheHit = getPromptCacheHitTokens(modelUsage);
-        const modelCacheMiss = getPromptCacheMissTokens(modelUsage);
-        const modelCost = (modelCacheHit / 1_000_000) * cacheHitPrice
-          + (modelCacheMiss / 1_000_000) * cacheMissPrice
-          + (Math.max(0, modelInputTokens - modelCacheHit - modelCacheMiss) / 1_000_000) * pricing.inputPricePerMillion
-          + (modelOutputTokens / 1_000_000) * pricing.outputPricePerMillion;
+        const diff = usageByModelDiff[modelName];
+        const modelPrompt = typeof diff.prompt_tokens === "number" ? diff.prompt_tokens : 0;
+        const modelCompletion = typeof diff.completion_tokens === "number" ? diff.completion_tokens : 0;
+        const modelCacheHit = typeof diff.prompt_cache_hit_tokens === "number" ? diff.prompt_cache_hit_tokens : 0;
+        const modelCacheMiss = typeof diff.prompt_cache_miss_tokens === "number" ? diff.prompt_cache_miss_tokens : 0;
+
+        // Resolve per-model pricing (Bug 2 fix)
+        const mp = resolveModelPricing(modelName);
+        const mHitPrice = mp.inputCacheHitPricePerMillion > 0
+          ? mp.inputCacheHitPricePerMillion
+          : mp.inputPricePerMillion;
+        const mMissPrice = mp.inputCacheMissPricePerMillion > 0
+          ? mp.inputCacheMissPricePerMillion
+          : mp.inputPricePerMillion;
+
+        const modelCost = (modelCacheHit / 1_000_000) * mHitPrice
+          + (modelCacheMiss / 1_000_000) * mMissPrice
+          + (Math.max(0, modelPrompt - modelCacheHit - modelCacheMiss) / 1_000_000) * mp.inputPricePerMillion
+          + (modelCompletion / 1_000_000) * mp.outputPricePerMillion;
         if (modelCost > 0) {
           modelCosts.push(`${modelName}=¥${formatCost(modelCost)}`);
         }
@@ -671,6 +725,14 @@ function formatTokenCount(tokens: number): string {
   if (tokens < 10000) return `${(tokens / 1000).toFixed(1)}k`;
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(0)}M`;
   return `${Math.round(tokens / 1000)}k`;
+}
+
+/**
+ * Resolve per-model pricing from settings. Used by buildCompletionSummary
+ * to charge each model its own rate (Bug 2 fix).
+ */
+function resolveModelPricing(modelName: string): Required<PricingConfig> {
+  return resolveSettings(readSettings(), { model: modelName, baseURL: DEFAULT_BASE_URL }).pricing;
 }
 
 export function readSettings(): DeepcodingSettings | null {
