@@ -225,13 +225,21 @@ export class SessionManager {
     return tokens;
   }
 
-  /** Extract the function name from the last tool call in a batch. */
+  /** 从一批工具调用中提取最后一个工具调用的函数名称。 */
   private extractLastToolName(toolCalls: unknown[]): string | undefined {
     if (toolCalls.length === 0) return undefined;
     const last = toolCalls[toolCalls.length - 1];
-    if (isUsageRecord(last)) {
+    if (
+      typeof last === "object" &&
+      last !== null &&
+      !Array.isArray(last)
+    ) {
       const fn = (last as Record<string, unknown>).function;
-      if (isUsageRecord(fn)) {
+      if (
+        typeof fn === "object" &&
+        fn !== null &&
+        !Array.isArray(fn)
+      ) {
         const name = (fn as Record<string, unknown>).name;
         return typeof name === "string" ? name : undefined;
       }
@@ -895,7 +903,7 @@ ${skillMd}
     this.closePendingToolCalls(sessionId, "Previous tool call did not complete.");
 
     try {
-      const maxIterations = 80000;  // about 1K RMB cost
+      const maxIterations = 80000;  // 约 1000 元成本上限
       let toolCalls: unknown[] | null = null;
       let lastToolName: string | undefined;
       let currentClient = primary.client;
@@ -905,7 +913,7 @@ ${skillMd}
       let currentReasoningEffort = primary.reasoningEffort;
       let wasAutoSwitched = false;  // pro→flash 自动切换标记
 
-      // Pre-fetch pricing for both models (for price-aware switching)
+      // 预获取两个模型的定价信息（用于价格感知切换）
       const proPricing = primary.pricing;
       const flashClientInfo = this.createOpenAIClient("deepseek-v4-flash");
       const flashPricing = flashClientInfo.pricing;
@@ -916,15 +924,19 @@ ${skillMd}
           return;
         }
 
-        // Get accumulated tokens for price-aware switching
+        // 获取价格感知切换所需的累积 token 数
+        // 同时包含历史 usage 和本轮已处理的 input tokens
         const sessionEntry = this.getSession(sessionId);
-        const accumulatedTokens = sessionEntry ? getTotalTokens(sessionEntry.usage) : 0;
+        const accumulatedTokens = sessionEntry
+          ? getTotalTokens(sessionEntry.usage) + sessionEntry.activeTokens
+          : 0;
 
-        // Select model using price-aware algorithm when pricing is available
+        // 当定价信息可用时，使用价格感知算法选择模型
         let selectedModel: string;
         let switchReason: string;
         if (proPricing && flashPricing && primaryModel === "deepseek-v4-pro") {
           const switchCtx: SwitchContext = {
+            enabled: autoSwitch?.enabled ?? true,
             proPricing,
             flashPricing,
             accumulatedTokens,
@@ -949,7 +961,7 @@ ${skillMd}
             currentBaseURL = next.baseURL ?? primary.baseURL;
             currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
 
-            // Append switch reason as hidden system message
+            // 将切换原因追加为隐藏系统消息
             const switchMessage = this.buildSystemMessage(
               sessionId,
               `${getFlashAutoSwitchMessage()}\n\n[价格策略] ${switchReason}`
@@ -958,7 +970,7 @@ ${skillMd}
             this.onAssistantMessage(switchMessage, false);
             wasAutoSwitched = true;
           }
-          // If next client is null (e.g. flash not configured), keep current
+          // 若 next client 为 null（如未配置 flash），保持当前模型
         }
 
         const session = this.getSession(sessionId);
@@ -968,7 +980,7 @@ ${skillMd}
 
         const compactPromptTokenThreshold = getCompactPromptTokenThreshold(currentModel);
 
-        // Store threshold on session entry so the UI can show capacity usage
+        // 将阈值存储到 session entry，以便 UI 显示容量使用情况
         if (session.compactThreshold !== compactPromptTokenThreshold) {
           this.updateSessionEntry(sessionId, (entry) => ({
             ...entry,
@@ -1026,12 +1038,12 @@ ${skillMd}
           return;
         }
 
-        // P2: Flash quality pre-append detection — upgrade to Pro if Flash response is inadequate
+        // P2: Flash 质量预检测——若 Flash 响应质量不足则升级为 Pro
         if (wasAutoSwitched && currentModel === "deepseek-v4-flash") {
           const isRefusal = typeof refusal === "string" && refusal.length > 0;
           const isEmpty = content.trim().length === 0 && !toolCalls;
           if (isRefusal || isEmpty) {
-            // Switch back to Pro without appending Flash's bad response
+            // 回退到 Pro，但不追加 Flash 的劣质响应
             const proClient = this.createOpenAIClient(primaryModel);
             if (proClient.client) {
               currentClient = proClient.client;
@@ -1043,12 +1055,12 @@ ${skillMd}
 
               const fallbackMsg = this.buildSystemMessage(
                 sessionId,
-                `[模型回退] Flash ${isRefusal ? "refused" : "returned empty"}, upgraded to ${primaryModel} for retry.`
+                `[模型回退] Flash ${isRefusal ? "拒绝回答" : "返回空响应"}，已升级为 ${primaryModel} 进行重试。`
               );
               this.appendSessionMessage(sessionId, fallbackMsg);
               this.onAssistantMessage(fallbackMsg, false);
-              toolCalls = null;  // Reset so Pro does fresh analysis
-              continue;  // Retry with Pro (does not consume iteration)
+              toolCalls = null;  // 重置，以便 Pro 重新分析
+              continue;  // 使用 Pro 重试（不消耗迭代次数）
             }
           }
         }
@@ -1302,8 +1314,8 @@ ${skillMd}
 
   listSessions(): SessionEntry[] {
     const index = this.loadSessionsIndex();
-    // Any session still marked "processing" when the CLI starts
-    // is stale — the previous run was interrupted or crashed.
+    // CLI 启动时仍标记为 "processing" 的会话是过期的——
+    // 说明上一次运行被中断或崩溃了。
     const now = new Date().toISOString();
     let dirty = false;
     for (const entry of index.entries) {
@@ -1942,8 +1954,8 @@ ${skillMd}
   }
 
   /**
-   * Failed bash commands should not clutter the message view —
-   * they are treated as opaque errors, not visible user-facing output.
+   * 失败的 bash 命令不应弄乱消息视图——
+   * 它们被视为不透明错误，不会显示给用户。
    */
   private isInvisibleExecution(content: string): boolean {
     if (!content.trim()) {

@@ -28,7 +28,9 @@ export type PricingConfig = {
 };
 
 export type AutoSwitchConfig = {
-  /** 最大回本轮数（默认 8），超过则不切换到 Flash */
+  /** 是否启用价格感知模型自动切换（默认 true） */
+  enabled?: boolean;
+  /** 最大回本轮数（默认 8），设置为 0 可禁止切换到 Flash（需 enabled=true） */
   maxPaybackRounds?: number;
   /** 预估每轮 output token 数（默认 2000），用于计算 roundSaving */
   estimatedOutputPerRound?: number;
@@ -46,6 +48,7 @@ export type DeepcodingSettings = {
 };
 
 export type ResolvedAutoSwitchConfig = {
+  enabled: boolean;
   maxPaybackRounds: number;
   estimatedOutputPerRound: number;
 };
@@ -68,11 +71,14 @@ function resolveReasoningEffort(value: unknown): ReasoningEffort {
 
 function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined): ResolvedAutoSwitchConfig {
   const raw = settings?.autoSwitch;
-  const maxPaybackRounds = (typeof raw?.maxPaybackRounds === "number" && raw.maxPaybackRounds > 0)
+  // enabled 默认为 true；显式设为 false 则完全禁用自动切换
+  const enabled = raw?.enabled !== false;
+  // maxPaybackRounds=0 表示"不切换"（需 enabled=true）；<0 或未提供则默认 8
+  const maxPaybackRounds = (typeof raw?.maxPaybackRounds === "number" && raw.maxPaybackRounds >= 0)
     ? raw.maxPaybackRounds : 8;
   const estimatedOutputPerRound = (typeof raw?.estimatedOutputPerRound === "number" && raw.estimatedOutputPerRound > 0)
     ? raw.estimatedOutputPerRound : 2000;
-  return { maxPaybackRounds, estimatedOutputPerRound };
+  return { enabled, maxPaybackRounds, estimatedOutputPerRound };
 }
 
 function resolveThinkingEnabled(
@@ -110,32 +116,32 @@ export function resolveSettings(
     modelOverride?.baseURL?.trim() || env.BASE_URL?.trim() || defaults.baseURL;
 
   const resolvePrice = (field: "inputPricePerMillion" | "outputPricePerMillion"): number => {
-    // 1. Per-model pricing
+    // 1. 优先使用 per-model 定价
     const modelPrice = modelOverride?.pricing?.[field];
     if (typeof modelPrice === "number" && !Number.isNaN(modelPrice)) {
       return modelPrice;
     }
-    // 2. Global pricing
+    // 2. 其次使用全局定价
     const globalPrice = settings?.pricing?.[field];
     if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
       return globalPrice;
     }
-    // 3. Default
+    // 3. 默认值
     return 0;
   };
 
   const resolveCachePrice = (field: "inputCacheHitPricePerMillion" | "inputCacheMissPricePerMillion"): number => {
-    // 1. Per-model pricing
+    // 1. 优先使用 per-model 定价
     const modelPrice = modelOverride?.pricing?.[field];
     if (typeof modelPrice === "number" && !Number.isNaN(modelPrice)) {
       return modelPrice;
     }
-    // 2. Global pricing
+    // 2. 其次使用全局定价
     const globalPrice = settings?.pricing?.[field];
     if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
       return globalPrice;
     }
-    // 3. Fall back to inputPricePerMillion (for cache fields, also try the resolved input price)
+    // 3. 回退到 inputPricePerMillion（缓存字段也会尝试解析后的 input 价格）
     return 0;
   };
 
@@ -159,7 +165,7 @@ export function resolveSettings(
   };
 }
 
-/** Return all model names declared in settings (env.MODEL + models keys), deduped. */
+/** 返回 settings 中声明的所有模型名称（env.MODEL + models keys），去重后排序。 */
 export function getAvailableModelNames(settings: DeepcodingSettings | null | undefined): string[] {
   const names = new Set<string>();
 
@@ -180,8 +186,8 @@ export function getAvailableModelNames(settings: DeepcodingSettings | null | und
 }
 
 /**
- * Persist the active model name to settings.json by updating env.MODEL.
- * Returns true on success, false on failure.
+ * 将当前激活的模型名称持久化到 settings.json（通过更新 env.MODEL）。
+ * 成功返回 true，失败返回 false。
  */
 export function updateActiveModelInSettings(modelName: string): boolean {
   try {
@@ -200,8 +206,8 @@ export function updateActiveModelInSettings(modelName: string): boolean {
 }
 
 /**
- * Persist thinkingEnabled and reasoningEffort to settings.json.
- * Returns true on success, false on failure.
+ * 将 thinkingEnabled 和 reasoningEffort 持久化到 settings.json。
+ * 成功返回 true，失败返回 false。
  */
 export function updateThinkingConfigInSettings(
   thinkingEnabled: boolean,

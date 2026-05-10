@@ -7,7 +7,7 @@ import {
 } from "../model-capabilities";
 import type { SwitchContext } from "../model-capabilities";
 
-// DeepSeek public pricing (per million tokens)
+// DeepSeek 公开定价（每百万 token）
 const PRO_PRICING_2_5X = {
   inputCacheHitPricePerMillion: 0.025,
   inputCacheMissPricePerMillion: 0.25,
@@ -20,6 +20,7 @@ const FLASH_PRICING = {
 };
 
 const makeCtx = (overrides: Partial<SwitchContext> = {}): SwitchContext => ({
+  enabled: true,
   proPricing: PRO_PRICING_2_5X,
   flashPricing: FLASH_PRICING,
   accumulatedTokens: 100_000,
@@ -32,7 +33,7 @@ const makeCtx = (overrides: Partial<SwitchContext> = {}): SwitchContext => ({
 test("no tool calls -> keep Pro", () => {
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, false, makeCtx());
   assert.equal(result.model, DEEPSEEK_V4_PRO);
-  assert.ok(result.reason.includes("No tool calls"));
+  assert.ok(result.reason.includes("尚无工具调用"));
 });
 
 test("non-Pro primary model -> keep primary", () => {
@@ -41,8 +42,8 @@ test("non-Pro primary model -> keep primary", () => {
 });
 
 test("Pro cheaper in all dimensions -> never switch to Flash", () => {
-  // 2.5x discount: Pro is cheaper in hit (0.025 vs 0.01? No, Flash hit is cheaper)
-  // Let's create a scenario where Pro IS cheaper in ALL dims
+  // 2.5x 折扣：Pro 在 hit 上更便宜（0.025 vs 0.01? 不，Flash hit 更便宜）
+  // 构造一个 Pro 在所有维度都更便宜的情形
   const ctx = makeCtx({
     proPricing: {
       inputCacheHitPricePerMillion: 0.01,   // cheaper
@@ -57,7 +58,7 @@ test("Pro cheaper in all dimensions -> never switch to Flash", () => {
   });
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx);
   assert.equal(result.model, DEEPSEEK_V4_PRO);
-  assert.ok(result.reason.includes("cheaper in all dimensions"));
+  assert.ok(result.reason.includes("全部维度更便宜"));
 });
 
 test("AskUserQuestion locks Pro", () => {
@@ -68,20 +69,19 @@ test("AskUserQuestion locks Pro", () => {
   assert.ok(result.reason.includes("AskUserQuestion"));
 });
 
-test("2.5x discount: Pro cheaper in hit+output, Flash cheaper in miss -> switches Flash when payback <= 8", () => {
-  // With 100k accumulated tokens:
+test("2.5x discount: Flash only cheaper in cacheHit -> stay on Pro", () => {
+  // 累积 100k tokens 时：
   // penalty = 100k/1M * (1.0 - 0.025) = 0.0975
-  // saving  = 2000/1M * (0.075 - 0.4) = -0.00065 (negative! Flash output is MORE expensive)
-  // Wait — at 2.5x discount, Pro output (0.075) < Flash output (0.4)
-  // So roundSaving = 2000/1M * (0.075 - 0.4) = negative
-  // Should stay on Pro because Flash output is NOT cheaper
+  // saving  = 2000/1M * (0.075 - 0.4) = -0.00065（负数——Flash 输出反而更贵）
+  // Pro 在输出上更便宜（0.075 < 0.4），故 roundSaving < 0
+  // 因此留在 Pro，因为 Flash 输出不便宜
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, makeCtx());
   assert.equal(result.model, DEEPSEEK_V4_PRO);
-  assert.ok(result.reason.includes("Flash output not cheaper") || result.reason.includes("cheaper in all"));
+  assert.ok(result.reason.includes("Flash 输出价格更高") || result.reason.includes("全部维度更便宜"));
 });
 
 test("Flash cheaper in output -> compute payback rounds", () => {
-  // Flash output (0.4) > Pro output (0.075), not this case. Let's make Flash cheaper:
+  // Flash 输出（0.4）> Pro 输出（0.075），不是这种情况。我们让 Flash 更便宜：
   const ctx = makeCtx({
     proPricing: {
       inputCacheHitPricePerMillion: 1.0,    // Pro expensive hit
@@ -91,13 +91,13 @@ test("Flash cheaper in output -> compute payback rounds", () => {
     flashPricing: {
       inputCacheHitPricePerMillion: 0.5,
       inputCacheMissPricePerMillion: 2.0,
-      outputPricePerMillion: 0.4,           // Flash cheaper output
+      outputPricePerMillion: 0.4,           // Flash 输出更便宜
     },
     accumulatedTokens: 100_000,
   });
   // penalty = 100k/1M * (2.0 - 1.0) = 0.1
   // saving  = 2000/1M * (2.0 - 0.4) = 0.0032
-  // payback = 0.1 / 0.0032 = 31.25 rounds > 8 -> stay Pro
+  // payback = 0.1 / 0.0032 = 31.25 轮 > 8 -> 留在 Pro
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx);
   assert.equal(result.model, DEEPSEEK_V4_PRO);
   assert.ok(result.paybackRounds > 8);
@@ -118,7 +118,7 @@ test("Low accumulated tokens -> switch to Flash (low penalty)", () => {
     accumulatedTokens: 10_000,
     // penalty = 10k/1M * (2.0 - 1.0) = 0.01
     // saving  = 2000/1M * (2.0 - 0.4) = 0.0032
-    // payback = 0.01 / 0.0032 = 3.125 <= 8 -> switch!
+    // payback = 0.01 / 0.0032 = 3.125 <= 8 -> 切换！
   });
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx);
   assert.equal(result.model, DEEPSEEK_V4_FLASH);
@@ -157,7 +157,7 @@ test("estimatedOutputPerRound affects payback calculation", () => {
       outputPricePerMillion: 0.4,
     },
     accumulatedTokens: 10_000,
-    estimatedOutputPerRound: 20000,  // 10x bigger output -> 10x saving
+    estimatedOutputPerRound: 20000,  // 10 倍输出 -> 10 倍节省
     // saving = 20000/1M * (2.0 - 0.4) = 0.032
     // payback = 0.01 / 0.032 = 0.3125 <= 8 -> switch
   });
@@ -176,5 +176,24 @@ test("equal pricing in all dimensions -> stay on Pro (not cheaper, but equal)", 
     flashPricing: equal,
   }));
   assert.equal(result.model, DEEPSEEK_V4_PRO);
-  assert.ok(result.reason.includes("cheaper in all dimensions"));
+  assert.ok(result.reason.includes("全部维度更便宜"));
+});
+
+test("enabled=false -> always stay on Pro regardless of pricing", () => {
+  // 即便 Flash 在所有维度都更便宜，禁用自动切换后也应留在 Pro
+  const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, makeCtx({
+    enabled: false,
+    proPricing: {
+      inputCacheHitPricePerMillion: 1.0,
+      inputCacheMissPricePerMillion: 1.0,
+      outputPricePerMillion: 2.0,
+    },
+    flashPricing: {
+      inputCacheHitPricePerMillion: 0.01,
+      inputCacheMissPricePerMillion: 0.01,
+      outputPricePerMillion: 0.01,
+    },
+  }));
+  assert.equal(result.model, DEEPSEEK_V4_PRO);
+  assert.ok(result.reason.includes("自动切换已禁用"));
 });
