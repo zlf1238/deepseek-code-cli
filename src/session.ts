@@ -769,7 +769,7 @@ The candidate skills are as follows:\n\n`;
 
     // 提前获取主模型，用于选择对应模型优化的系统提示词
     const primaryModel = this.createOpenAIClient().model;
-    const systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions(primaryModel));
+    const systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions());
     const systemMessage = this.buildSystemMessage(sessionId, systemPrompt);
     this.appendSessionMessage(sessionId, systemMessage);
 
@@ -942,7 +942,7 @@ ${skillMd}
             accumulatedTokens,
             lastToolName,
             maxPaybackRounds: autoSwitch?.maxPaybackRounds ?? 8,
-            estimatedOutputPerRound: autoSwitch?.estimatedOutputPerRound ?? 2000,
+            estimatedOutputPerRound: autoSwitch?.estimatedOutputPerRound ?? 8000,
           };
           const result = selectModelByPrice(primaryModel, toolCalls !== null, switchCtx);
           selectedModel = result.model;
@@ -957,7 +957,8 @@ ${skillMd}
           if (next.client) {
             currentClient = next.client;
             currentModel = next.model;
-            currentThinkingEnabled = next.thinkingEnabled;
+            // 自动切换到 Flash 时强制开启深度思考，确保编程质量
+            currentThinkingEnabled = selectedModel === "deepseek-v4-flash" ? true : next.thinkingEnabled;
             currentBaseURL = next.baseURL ?? primary.baseURL;
             currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
 
@@ -1017,7 +1018,7 @@ ${skillMd}
           {
             model: currentModel,
             messages,
-            tools: getTools(this.getPromptToolOptions(currentModel, wasAutoSwitched)),
+            tools: getTools(this.getPromptToolOptions()),
             ...thinkingOptions
           },
           { signal: sessionController.signal },
@@ -1238,11 +1239,9 @@ ${skillMd}
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(model?: string, flashAutoSwitch?: boolean): { webSearchEnabled: boolean; model?: string; flashAutoSwitch?: boolean } {
+  private getPromptToolOptions(): { webSearchEnabled: boolean } {
     return {
-      webSearchEnabled: true,
-      model,
-      flashAutoSwitch
+      webSearchEnabled: true
     };
   }
 
