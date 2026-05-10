@@ -6,7 +6,8 @@ import matter from "gray-matter";
 import type { ChatCompletionMessageParam, ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
-import { getContextWindowCapacity, selectModelForIteration } from "./model-capabilities";
+import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice } from "./model-capabilities";
+import type { PricingSnapshot, SwitchContext } from "./model-capabilities";
 import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 
@@ -222,6 +223,20 @@ export class SessionManager {
       tokens += /[\u3400-\u9fff\uf900-\ufaff]/u.test(char) ? 0.6 : 0.3;
     }
     return tokens;
+  }
+
+  /** Extract the function name from the last tool call in a batch. */
+  private extractLastToolName(toolCalls: unknown[]): string | undefined {
+    if (toolCalls.length === 0) return undefined;
+    const last = toolCalls[toolCalls.length - 1];
+    if (isUsageRecord(last)) {
+      const fn = (last as Record<string, unknown>).function;
+      if (isUsageRecord(fn)) {
+        const name = (fn as Record<string, unknown>).name;
+        return typeof name === "string" ? name : undefined;
+      }
+    }
+    return undefined;
   }
 
   private formatEstimatedTokens(tokens: number): string {
@@ -882,6 +897,7 @@ ${skillMd}
     try {
       const maxIterations = 80000;  // about 1K RMB cost
       let toolCalls: unknown[] | null = null;
+      let lastToolName: string | undefined;
       let currentClient = primary.client;
       let currentModel = primaryModel;
       let currentThinkingEnabled = primary.thinkingEnabled;
@@ -889,13 +905,41 @@ ${skillMd}
       let currentReasoningEffort = primary.reasoningEffort;
       let wasAutoSwitched = false;  // pro→flash 自动切换标记
 
+      // Pre-fetch pricing for both models (for price-aware switching)
+      const proPricing = primary.pricing;
+      const flashClientInfo = this.createOpenAIClient("deepseek-v4-flash");
+      const flashPricing = flashClientInfo.pricing;
+      const autoSwitch = primary.autoSwitch;
+
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.isInterrupted(sessionId)) {
           return;
         }
 
-        // Select the best model for this turn; falls back to primary if flash unavailable
-        const selectedModel = selectModelForIteration(primaryModel, toolCalls !== null);
+        // Get accumulated tokens for price-aware switching
+        const sessionEntry = this.getSession(sessionId);
+        const accumulatedTokens = sessionEntry ? getTotalTokens(sessionEntry.usage) : 0;
+
+        // Select model using price-aware algorithm when pricing is available
+        let selectedModel: string;
+        let switchReason: string;
+        if (proPricing && flashPricing && primaryModel === "deepseek-v4-pro") {
+          const switchCtx: SwitchContext = {
+            proPricing,
+            flashPricing,
+            accumulatedTokens,
+            lastToolName,
+            maxPaybackRounds: autoSwitch?.maxPaybackRounds ?? 8,
+            estimatedOutputPerRound: autoSwitch?.estimatedOutputPerRound ?? 2000,
+          };
+          const result = selectModelByPrice(primaryModel, toolCalls !== null, switchCtx);
+          selectedModel = result.model;
+          switchReason = result.reason;
+        } else {
+          selectedModel = selectModelForIteration(primaryModel, toolCalls !== null);
+          switchReason = selectedModel === currentModel ? "keep" : "switch";
+        }
+
         if (selectedModel !== currentModel) {
           const next = this.createOpenAIClient(selectedModel);
           if (next.client) {
@@ -905,10 +949,13 @@ ${skillMd}
             currentBaseURL = next.baseURL ?? primary.baseURL;
             currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
 
-            // 自动切换模型时注入适配提示，告知 AI 角色和工具变更
-            const flashSwitchMessage = this.buildSystemMessage(sessionId, getFlashAutoSwitchMessage());
-            this.appendSessionMessage(sessionId, flashSwitchMessage);
-            this.onAssistantMessage(flashSwitchMessage, false);
+            // Append switch reason as hidden system message
+            const switchMessage = this.buildSystemMessage(
+              sessionId,
+              `${getFlashAutoSwitchMessage()}\n\n[价格策略] ${switchReason}`
+            );
+            this.appendSessionMessage(sessionId, switchMessage);
+            this.onAssistantMessage(switchMessage, false);
             wasAutoSwitched = true;
           }
           // If next client is null (e.g. flash not configured), keep current
@@ -978,12 +1025,41 @@ ${skillMd}
         if (this.isInterrupted(sessionId)) {
           return;
         }
+
+        // P2: Flash quality pre-append detection — upgrade to Pro if Flash response is inadequate
+        if (wasAutoSwitched && currentModel === "deepseek-v4-flash") {
+          const isRefusal = typeof refusal === "string" && refusal.length > 0;
+          const isEmpty = content.trim().length === 0 && !toolCalls;
+          if (isRefusal || isEmpty) {
+            // Switch back to Pro without appending Flash's bad response
+            const proClient = this.createOpenAIClient(primaryModel);
+            if (proClient.client) {
+              currentClient = proClient.client;
+              currentModel = proClient.model;
+              currentThinkingEnabled = proClient.thinkingEnabled;
+              currentBaseURL = proClient.baseURL ?? primary.baseURL;
+              currentReasoningEffort = proClient.reasoningEffort ?? primary.reasoningEffort;
+              wasAutoSwitched = false;
+
+              const fallbackMsg = this.buildSystemMessage(
+                sessionId,
+                `[模型回退] Flash ${isRefusal ? "refused" : "returned empty"}, upgraded to ${primaryModel} for retry.`
+              );
+              this.appendSessionMessage(sessionId, fallbackMsg);
+              this.onAssistantMessage(fallbackMsg, false);
+              toolCalls = null;  // Reset so Pro does fresh analysis
+              continue;  // Retry with Pro (does not consume iteration)
+            }
+          }
+        }
+
         const assistantMessage = this.buildAssistantMessage(sessionId, content, toolCalls, thinking);
         this.appendSessionMessage(sessionId, assistantMessage);
         this.onAssistantMessage(assistantMessage, true);
 
         let waitingForUser = false;
         if (toolCalls) {
+          lastToolName = this.extractLastToolName(toolCalls);
           const toolAppendResult = await this.appendToolMessages(sessionId, toolCalls);
           waitingForUser = toolAppendResult.waitingForUser;
         }

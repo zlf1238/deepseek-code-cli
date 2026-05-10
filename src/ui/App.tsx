@@ -18,7 +18,8 @@ import {
   type SkillInfo,
   type UserPromptContent
 } from "../session";
-import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ReasoningEffort } from "../settings";
+import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ReasoningEffort, type ResolvedAutoSwitchConfig } from "../settings";
+import type { PricingSnapshot } from "../model-capabilities";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
 import { SessionList } from "./SessionList";
@@ -764,6 +765,8 @@ export function createOpenAIClient(overrideModel?: string): {
   notify?: string;
   webSearchTool?: string;
   machineId?: string;
+  pricing?: PricingSnapshot;
+  autoSwitch?: ResolvedAutoSwitchConfig;
 } {
   const settings = overrideModel
     ? (() => {
@@ -773,6 +776,12 @@ export function createOpenAIClient(overrideModel?: string): {
         return resolveSettings(raw, { model: overrideModel, baseURL: DEFAULT_BASE_URL });
       })()
     : resolveCurrentSettings();
+  const pricing: PricingSnapshot = {
+    inputCacheHitPricePerMillion: settings.pricing.inputCacheHitPricePerMillion,
+    inputCacheMissPricePerMillion: settings.pricing.inputCacheMissPricePerMillion,
+    outputPricePerMillion: settings.pricing.outputPricePerMillion,
+  };
+  const autoSwitch = settings.autoSwitch;
   if (!settings.apiKey) {
     return {
       client: null,
@@ -782,7 +791,9 @@ export function createOpenAIClient(overrideModel?: string): {
       reasoningEffort: settings.reasoningEffort,
       notify: settings.notify,
       webSearchTool: settings.webSearchTool,
-      machineId: getMachineId()
+      machineId: getMachineId(),
+      pricing,
+      autoSwitch
     };
   }
 
@@ -800,7 +811,9 @@ export function createOpenAIClient(overrideModel?: string): {
     reasoningEffort: settings.reasoningEffort,
     notify: settings.notify,
     webSearchTool: settings.webSearchTool,
-    machineId: getMachineId()
+    machineId: getMachineId(),
+    pricing,
+    autoSwitch
   };
 }
 

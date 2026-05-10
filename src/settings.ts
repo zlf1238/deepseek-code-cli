@@ -27,6 +27,13 @@ export type PricingConfig = {
   inputCacheMissPricePerMillion?: number;
 };
 
+export type AutoSwitchConfig = {
+  /** 最大回本轮数（默认 8），超过则不切换到 Flash */
+  maxPaybackRounds?: number;
+  /** 预估每轮 output token 数（默认 2000），用于计算 roundSaving */
+  estimatedOutputPerRound?: number;
+};
+
 export type DeepcodingSettings = {
   env?: DeepcodingEnv;
   models?: Record<string, ModelOverride>;
@@ -35,6 +42,12 @@ export type DeepcodingSettings = {
   notify?: string;
   webSearchTool?: string;
   pricing?: PricingConfig;
+  autoSwitch?: AutoSwitchConfig;
+};
+
+export type ResolvedAutoSwitchConfig = {
+  maxPaybackRounds: number;
+  estimatedOutputPerRound: number;
 };
 
 export type ResolvedDeepcodingSettings = {
@@ -46,10 +59,20 @@ export type ResolvedDeepcodingSettings = {
   notify?: string;
   webSearchTool?: string;
   pricing: Required<PricingConfig>;
+  autoSwitch: ResolvedAutoSwitchConfig;
 };
 
 function resolveReasoningEffort(value: unknown): ReasoningEffort {
   return value === "high" || value === "max" ? value : "max";
+}
+
+function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined): ResolvedAutoSwitchConfig {
+  const raw = settings?.autoSwitch;
+  const maxPaybackRounds = (typeof raw?.maxPaybackRounds === "number" && raw.maxPaybackRounds > 0)
+    ? raw.maxPaybackRounds : 8;
+  const estimatedOutputPerRound = (typeof raw?.estimatedOutputPerRound === "number" && raw.estimatedOutputPerRound > 0)
+    ? raw.estimatedOutputPerRound : 2000;
+  return { maxPaybackRounds, estimatedOutputPerRound };
 }
 
 function resolveThinkingEnabled(
@@ -131,7 +154,8 @@ export function resolveSettings(
     reasoningEffort: resolveReasoningEffort(settings?.reasoningEffort),
     notify: notify || undefined,
     webSearchTool: webSearchTool || undefined,
-    pricing
+    pricing,
+    autoSwitch: resolveAutoSwitchConfig(settings)
   };
 }
 

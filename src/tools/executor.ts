@@ -1,5 +1,6 @@
 import type OpenAI from "openai";
-import type { ReasoningEffort } from "../settings";
+import type { ReasoningEffort, ResolvedAutoSwitchConfig } from "../settings";
+import type { PricingSnapshot } from "../model-capabilities";
 import { handleAskUserQuestionTool } from "./ask-user-question-handler";
 import { handleBashTool } from "./bash-handler";
 import { handleEditTool } from "./edit-handler";
@@ -18,6 +19,10 @@ export type CreateOpenAIClient = (overrideModel?: string) => {
   notify?: string;
   webSearchTool?: string;
   machineId?: string;
+  /** Per-model pricing snapshot (per million tokens). */
+  pricing?: PricingSnapshot;
+  /** Auto-switch configuration. */
+  autoSwitch?: ResolvedAutoSwitchConfig;
 };
 
 export type ToolCall = {
