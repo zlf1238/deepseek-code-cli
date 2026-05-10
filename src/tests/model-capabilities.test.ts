@@ -26,7 +26,7 @@ const makeCtx = (overrides: Partial<SwitchContext> = {}): SwitchContext => ({
   accumulatedTokens: 100_000,
   lastToolName: undefined,
   maxPaybackRounds: 8,
-  estimatedOutputPerRound: 2000,
+  estimatedOutputPerRound: 20000,
   ...overrides,
 });
 
@@ -72,7 +72,7 @@ test("AskUserQuestion locks Pro", () => {
 test("2.5x discount: Flash only cheaper in cacheHit -> stay on Pro", () => {
   // 累积 100k tokens 时：
   // penalty = 100k/1M * (1.0 - 0.025) = 0.0975
-  // saving  = 2000/1M * (0.075 - 0.4) = -0.00065（负数——Flash 输出反而更贵）
+  // saving  = 20000/1M * (0.075 - 0.4) = -0.0065（负数——Flash 输出反而更贵）
   // Pro 在输出上更便宜（0.075 < 0.4），故 roundSaving < 0
   // 因此留在 Pro，因为 Flash 输出不便宜
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, makeCtx());
@@ -80,7 +80,7 @@ test("2.5x discount: Flash only cheaper in cacheHit -> stay on Pro", () => {
   assert.ok(result.reason.includes("Flash 输出价格更高") || result.reason.includes("全部维度更便宜"));
 });
 
-test("Flash cheaper in output -> compute payback rounds", () => {
+test("Flash cheaper in output (high penalty) -> stay on Pro", () => {
   // Flash 输出（0.4）> Pro 输出（0.075），不是这种情况。我们让 Flash 更便宜：
   const ctx = makeCtx({
     proPricing: {
@@ -93,11 +93,11 @@ test("Flash cheaper in output -> compute payback rounds", () => {
       inputCacheMissPricePerMillion: 2.0,
       outputPricePerMillion: 0.4,           // Flash 输出更便宜
     },
-    accumulatedTokens: 100_000,
+    accumulatedTokens: 260_000,
+    // penalty = 260k/1M * (2.0 - 1.0) = 0.26
+    // saving  = 20000/1M * (2.0 - 0.4) = 0.032
+    // payback = 0.26 / 0.032 = 8.125 > 8 -> 留在 Pro
   });
-  // penalty = 100k/1M * (2.0 - 1.0) = 0.1
-  // saving  = 2000/1M * (2.0 - 0.4) = 0.0032
-  // payback = 0.1 / 0.0032 = 31.25 轮 > 8 -> 留在 Pro
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx);
   assert.equal(result.model, DEEPSEEK_V4_PRO);
   assert.ok(result.paybackRounds > 8);
@@ -117,8 +117,8 @@ test("Low accumulated tokens -> switch to Flash (low penalty)", () => {
     },
     accumulatedTokens: 10_000,
     // penalty = 10k/1M * (2.0 - 1.0) = 0.01
-    // saving  = 2000/1M * (2.0 - 0.4) = 0.0032
-    // payback = 0.01 / 0.0032 = 3.125 <= 8 -> 切换！
+    // saving  = 20000/1M * (2.0 - 0.4) = 0.032
+    // payback = 0.01 / 0.032 = 0.3125 <= 8 -> 切换！
   });
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx);
   assert.equal(result.model, DEEPSEEK_V4_FLASH);

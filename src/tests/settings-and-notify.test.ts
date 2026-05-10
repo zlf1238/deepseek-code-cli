@@ -169,7 +169,7 @@ test("resolveSettings defaults autoSwitch when absent", () => {
   );
 
   assert.equal(resolved.autoSwitch.maxPaybackRounds, 8);
-  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 2000);
+  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 20000);
 });
 
 test("resolveSettings ignores invalid autoSwitch values", () => {
@@ -187,7 +187,7 @@ test("resolveSettings ignores invalid autoSwitch values", () => {
   );
 
   assert.equal(resolved.autoSwitch.maxPaybackRounds, 8);
-  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 2000);
+  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 20000);
 });
 
 test("formatDurationSeconds preserves sub-second precision and trims trailing zeros", () => {

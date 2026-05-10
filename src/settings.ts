@@ -76,8 +76,9 @@ function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined
   // maxPaybackRounds=0 表示"不切换"（需 enabled=true）；<0 或未提供则默认 8
   const maxPaybackRounds = (typeof raw?.maxPaybackRounds === "number" && raw.maxPaybackRounds >= 0)
     ? raw.maxPaybackRounds : 8;
+  // 思考模式下 output token 通常远大于 input（比例约 1:10~50），默认 20000 更符合实际情况
   const estimatedOutputPerRound = (typeof raw?.estimatedOutputPerRound === "number" && raw.estimatedOutputPerRound > 0)
-    ? raw.estimatedOutputPerRound : 2000;
+    ? raw.estimatedOutputPerRound : 20000;
   return { enabled, maxPaybackRounds, estimatedOutputPerRound };
 }
 
