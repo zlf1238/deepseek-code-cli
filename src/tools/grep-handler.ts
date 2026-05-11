@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
+import { loadRTKConfig, wrapGrepArgs } from "./rtk";
 
 const MAX_OUTPUT_CHARS = 30000;
 const MAX_CAPTURE_CHARS = 10 * 1024 * 1024;
@@ -187,12 +188,15 @@ export async function handleGrepTool(
 
   const grepArgs = buildGrepArgs(pattern, dir, includePattern, contextLines, ignoreCase);
 
+  const rtkConfig = loadRTKConfig();
+  const { command: spawnCmd, args: spawnArgs } = wrapGrepArgs(grepArgs, rtkConfig);
+
   const { stdout, stderr, exitCode } = await new Promise<{
     stdout: string;
     stderr: string;
     exitCode: number | null;
   }>((resolve) => {
-    const child = spawn("grep", grepArgs, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: context.projectRoot,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]

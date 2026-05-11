@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
+import { loadRTKConfig, wrapFindArgs } from "./rtk";
 
 const MAX_OUTPUT_CHARS = 30000;
 const DEFAULT_EXCLUDE_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".nuxt"];
@@ -81,12 +82,15 @@ export async function handleGlobTool(
   const dir = resolveSearchDir(context.projectRoot, searchPath);
   const findArgs = buildFindArgs(pattern, dir);
 
+  const rtkConfig = loadRTKConfig();
+  const { command: spawnCmd, args: spawnArgs } = wrapFindArgs(findArgs, rtkConfig);
+
   const { stdout, stderr, exitCode } = await new Promise<{
     stdout: string;
     stderr: string;
     exitCode: number | null;
   }>((resolve) => {
-    const child = spawn("find", findArgs, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: context.projectRoot,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]

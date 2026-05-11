@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
+import { loadRTKConfig, wrapWithRTK } from "./rtk";
 
 const MAX_OUTPUT_CHARS = 30000;
 const MAX_CAPTURE_CHARS = 10 * 1024 * 1024;
@@ -28,7 +29,9 @@ export async function handleBashTool(
   }
 
   const startCwd = getSessionCwd(context.sessionId, context.projectRoot);
-  const { shellPath, shellArgs, marker } = buildShellCommand(command);
+  const rtkConfig = loadRTKConfig();
+  const rtkWrappedCommand = wrapWithRTK(command, rtkConfig);
+  const { shellPath, shellArgs, marker } = buildShellCommand(rtkWrappedCommand);
 
   const execution = await executeShellCommand(shellPath, shellArgs, startCwd, command, context);
   const result = buildToolCommandResult(

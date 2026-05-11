@@ -36,6 +36,13 @@ export type AutoSwitchConfig = {
   estimatedOutputPerRound?: number;
 };
 
+export type RTKSettings = {
+  /** 是否启用 RTK 输出压缩（默认 false） */
+  enabled?: boolean;
+  /** RTK 二进制路径（默认 "rtk"） */
+  binaryPath?: string;
+};
+
 export type DeepcodingSettings = {
   env?: DeepcodingEnv;
   models?: Record<string, ModelOverride>;
@@ -45,6 +52,7 @@ export type DeepcodingSettings = {
   webSearchTool?: string;
   pricing?: PricingConfig;
   autoSwitch?: AutoSwitchConfig;
+  rtk?: RTKSettings;
 };
 
 export type ResolvedAutoSwitchConfig = {
