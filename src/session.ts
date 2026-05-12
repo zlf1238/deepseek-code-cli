@@ -6,7 +6,7 @@ import matter from "gray-matter";
 import type { ChatCompletionMessageParam, ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
-import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice } from "./model-capabilities";
+import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice, DEEPSEEK_V4_FLASH } from "./model-capabilities";
 import type { PricingSnapshot, SwitchContext } from "./model-capabilities";
 import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
@@ -913,6 +913,13 @@ ${skillMd}
       let currentReasoningEffort = primary.reasoningEffort;
       let wasAutoSwitched = false;  // pro→flash 自动切换标记
 
+      // ── 双向切换状态追踪 ──
+      let roundsOnFlash = 0;           // Flash 连续运行轮数
+      let newUserMessage = true;       // 第一轮/用户新消息标记
+      const uniqueTools = new Set<string>();  // 本会话使用过的工具类型
+      let toolErrors = 0;             // 工具调用失败次数
+      let toolTotal = 0;              // 工具调用总次数
+
       // 预获取两个模型的定价信息（用于价格感知切换）
       const proPricing = primary.pricing;
       const flashClientInfo = this.createOpenAIClient("deepseek-v4-flash");
@@ -927,8 +934,9 @@ ${skillMd}
         // 获取价格感知切换所需的累积 token 数
         // 同时包含历史 usage 和本轮已处理的 input tokens
         const sessionEntry = this.getSession(sessionId);
+        // 历史累积 usage 已包含所有已完成轮次的 token，无需额外加上 activeTokens（否则会重复计数最近一轮）
         const accumulatedTokens = sessionEntry
-          ? getTotalTokens(sessionEntry.usage) + sessionEntry.activeTokens
+          ? getTotalTokens(sessionEntry.usage)
           : 0;
 
         // 当定价信息可用时，使用价格感知算法选择模型
@@ -943,6 +951,13 @@ ${skillMd}
             lastToolName,
             maxPaybackRounds: autoSwitch?.maxPaybackRounds ?? 8,
             estimatedOutputPerRound: autoSwitch?.estimatedOutputPerRound ?? 8000,
+            estimatedInputPerRound: autoSwitch?.estimatedInputPerRound ?? 500,
+            cacheHitRate: autoSwitch?.cacheHitRate ?? 0.5,
+            currentModel,
+            roundsOnFlash,
+            errorRate: toolTotal > 0 ? toolErrors / toolTotal : undefined,
+            uniqueToolCount: uniqueTools.size > 0 ? uniqueTools.size : undefined,
+            newUserMessage,
           };
           const result = selectModelByPrice(primaryModel, toolCalls !== null, switchCtx);
           selectedModel = result.model;
@@ -1073,9 +1088,25 @@ ${skillMd}
         let waitingForUser = false;
         if (toolCalls) {
           lastToolName = this.extractLastToolName(toolCalls);
+          // 收集工具复杂度信号：不重复工具类型 + 调用计数
+          for (const tc of toolCalls) {
+            const fn = (tc as Record<string, unknown> | null)?.function as Record<string, unknown> | null | undefined;
+            if (typeof fn?.name === "string" && fn.name) {
+              uniqueTools.add(fn.name);
+            }
+          }
+          toolTotal += toolCalls.length;
           const toolAppendResult = await this.appendToolMessages(sessionId, toolCalls);
           waitingForUser = toolAppendResult.waitingForUser;
         }
+
+        // 更新双向切换状态
+        if (currentModel === DEEPSEEK_V4_FLASH) {
+          roundsOnFlash++;
+        } else {
+          roundsOnFlash = 0;
+        }
+        newUserMessage = false;
 
         if (this.isInterrupted(sessionId)) {
           return;

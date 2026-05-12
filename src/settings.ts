@@ -32,8 +32,12 @@ export type AutoSwitchConfig = {
   enabled?: boolean;
   /** 最大回本轮数（默认 8），设置为 0 可禁止切换到 Flash（需 enabled=true） */
   maxPaybackRounds?: number;
-  /** 预估每轮 output token 数（默认 2000），用于计算 roundSaving */
+  /** 预估每轮 output token 数（默认 8000），用于计算 roundSaving */
   estimatedOutputPerRound?: number;
+  /** 预估每轮 new input token 数（默认 500），用于计算 input 侧节省 */
+  estimatedInputPerRound?: number;
+  /** 缓存命中率估算 0-1（默认 0.5），长会话建议 0.8+；影响预期输入价格计算 */
+  cacheHitRate?: number;
 };
 
 export type RTKSettings = {
@@ -59,6 +63,8 @@ export type ResolvedAutoSwitchConfig = {
   enabled: boolean;
   maxPaybackRounds: number;
   estimatedOutputPerRound: number;
+  estimatedInputPerRound: number;
+  cacheHitRate: number;
 };
 
 export type ResolvedDeepcodingSettings = {
@@ -87,7 +93,13 @@ function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined
   // Flash 自动切换时启用思考模式，output token 介于纯 Flash 和 Pro 之间，默认 8000
   const estimatedOutputPerRound = (typeof raw?.estimatedOutputPerRound === "number" && raw.estimatedOutputPerRound > 0)
     ? raw.estimatedOutputPerRound : 8000;
-  return { enabled, maxPaybackRounds, estimatedOutputPerRound };
+  // 每轮新增 input token 估算，默认 500
+  const estimatedInputPerRound = (typeof raw?.estimatedInputPerRound === "number" && raw.estimatedInputPerRound > 0)
+    ? raw.estimatedInputPerRound : 500;
+  // 缓存命中率 0-1，默认保守估计 0.5；长会话可上调至 0.8+
+  const cacheHitRate = (typeof raw?.cacheHitRate === "number" && raw.cacheHitRate >= 0 && raw.cacheHitRate <= 1)
+    ? raw.cacheHitRate : 0.5;
+  return { enabled, maxPaybackRounds, estimatedOutputPerRound, estimatedInputPerRound, cacheHitRate };
 }
 
 function resolveThinkingEnabled(
