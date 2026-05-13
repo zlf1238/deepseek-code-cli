@@ -716,20 +716,8 @@ The candidate skills are as follows:\n\n`;
     const signal = controller?.signal;
     this.throwIfAborted(signal);
 
-    if (userPrompt.text) {
-      const skills = await this.listSkills();
-      const skillNames = await this.identifyMatchingSkillNames(skills, userPrompt.text, { signal });
-      this.throwIfAborted(signal);
-      const skillSet = new Set(skillNames);
-      const matchedSkill = skills.filter((skill) => skillSet.has(skill.name));
-      if (Array.isArray(userPrompt.skills)) {
-        userPrompt.skills.push(...matchedSkill);
-      } else if (matchedSkill.length > 0) {
-        userPrompt.skills = matchedSkill;
-      }
-    }
-    userPrompt.skills = await this.normalizeSkills(userPrompt.skills);
-    this.throwIfAborted(signal);
+    // Skill matching is now handled by the model reading Available Skills index
+    // in the system prompt and calling SkillLoad when needed.
     const sessionId = crypto.randomUUID();
     const now = new Date().toISOString();
     const index = this.loadSessionsIndex();
@@ -782,21 +770,8 @@ The candidate skills are as follows:\n\n`;
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
     this.appendSessionMessage(sessionId, userMessage);
 
-    if (userPrompt.skills && userPrompt.skills.length > 0) {
-      for (const skill of userPrompt.skills) {
-        if (skill.isLoaded) {
-          continue;
-        }
-        const skillMd = fs.readFileSync(this.resolveSkillPath(skill.path), "utf8");
-        const skillPrompt = `Use the skill document below to assist the user:\n
-<${skill.name}-skill path="${this.resolveSkillPath(skill.path)}">
-${skillMd}
-</${skill.name}-skill>`;
-        const skillMessage = this.buildSkillMessage(sessionId, skillPrompt, skill);
-        this.appendSessionMessage(sessionId, skillMessage);
-        this.onAssistantMessage(skillMessage, true);
-      }
-    }
+    // Skills are now loaded on-demand via the SkillLoad tool (see tools/executor.ts).
+    // The skills index is already embedded in the system prompt via getSkillsIndex().
 
     this.activeSessionId = sessionId;
     await this.activateSession(sessionId, controller);
@@ -821,39 +796,12 @@ ${skillMd}
 
     this.closePendingToolCalls(sessionId, "Previous tool call did not complete.");
 
-    if (userPrompt.text) {
-      const skills = await this.listSkills(sessionId);
-      const skillNames = await this.identifyMatchingSkillNames(skills, userPrompt.text, { signal, sessionId });
-      this.throwIfAborted(signal);
-      const skillSet = new Set(skillNames);
-      const matchedSkill = skills.filter((skill) => skillSet.has(skill.name));
-      if (Array.isArray(userPrompt.skills)) {
-        userPrompt.skills.push(...matchedSkill);
-      } else if (matchedSkill.length > 0) {
-        userPrompt.skills = matchedSkill;
-      }
-    }
-    userPrompt.skills = await this.normalizeSkills(userPrompt.skills, sessionId);
-    this.throwIfAborted(signal);
+    // Skill matching is now handled by the model reading Available Skills index
+    // in the system prompt and calling SkillLoad when needed.
 
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
     this.appendSessionMessage(sessionId, userMessage);
 
-    if (userPrompt.skills && userPrompt.skills.length > 0) {
-      for (const skill of userPrompt.skills) {
-        if (skill.isLoaded) {
-          continue;
-        }
-        const skillMd = fs.readFileSync(this.resolveSkillPath(skill.path), "utf8");
-        const skillPrompt = `Use the skill document below to assist the user:\n
-<${skill.name}-skill path="${this.resolveSkillPath(skill.path)}">
-${skillMd}
-</${skill.name}-skill>`;
-        const skillMessage = this.buildSkillMessage(sessionId, skillPrompt, skill);
-        this.appendSessionMessage(sessionId, skillMessage);
-        this.onAssistantMessage(skillMessage, true);
-      }
-    }
     this.activeSessionId = sessionId;
     await this.activateSession(sessionId, controller);
   }
@@ -1599,23 +1547,6 @@ ${skillMd}
       visible: false,
       createTime: now,
       updateTime: now
-    };
-  }
-
-  private buildSkillMessage(sessionId: string, content: string, skill: SkillInfo): SessionMessage {
-    const now = new Date().toISOString();
-    return {
-      id: crypto.randomUUID(),
-      sessionId,
-      role: "system",
-      content,
-      contentParams: null,
-      messageParams: null,
-      compacted: false,
-      visible: true,
-      createTime: now,
-      updateTime: now,
-      meta: { skill: { ...skill, isLoaded: true } },
     };
   }
 

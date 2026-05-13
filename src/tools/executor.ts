@@ -9,6 +9,7 @@ import { handleGrepTool } from "./grep-handler";
 import { handleReadTool } from "./read-handler";
 import { handleWebSearchTool } from "./web-search-handler";
 import { handleWriteTool } from "./write-handler";
+import { handleSkillLoadTool } from "./skill-load-handler";
 
 export type CreateOpenAIClient = (overrideModel?: string) => {
   client: OpenAI | null;
@@ -123,6 +124,7 @@ export class ToolExecutor {
     this.toolHandlers.set("grep", handleGrepTool);
     this.toolHandlers.set("AskUserQuestion", handleAskUserQuestionTool);
     this.toolHandlers.set("WebSearch", handleWebSearchTool);
+    this.toolHandlers.set("SkillLoad", handleSkillLoadTool);
   }
 
   private parseToolCall(toolCall: unknown): ToolCall | null {

@@ -2,7 +2,7 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import type { SessionMessage } from "./session";
+import type { SessionMessage, SkillInfo } from "./session";
 
 export const AGENT_DRIFT_GUARD_SKILL = `
 ---
@@ -282,7 +282,8 @@ export function getSystemPrompt(projectRoot: string, options: PromptToolOptions 
   const basePrompt = toolDocs
     ? `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolDocs}`
     : SYSTEM_PROMPT_BASE;
-  return `${basePrompt}\n\n${getRuntimeContext(projectRoot)}`;
+  const skillsIndex = getSkillsIndex(projectRoot);
+  return `${basePrompt}${skillsIndex}\n\n${getRuntimeContext(projectRoot)}`;
 }
 
 export function getCompactPrompt(sessionMessages: SessionMessage[]): string {
@@ -317,6 +318,80 @@ function getRuntimeContext(projectRoot: string): string {
   return `# 本地工作环境\n\n\`\`\`json
 ${JSON.stringify(env, null, 2)}
 \`\`\``;
+}
+
+const SKILLS_INDEX_MAX_CHARS = 4000;
+
+function getSkillsIndex(projectRoot: string): string {
+  const skills = collectAllSkills(projectRoot);
+  if (skills.length === 0) return "";
+
+  const lines = skills
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => {
+      const desc = s.description || "(no description)";
+      return `- ${s.name} — ${desc}`;
+    });
+
+  const joined = lines.join("\n");
+  const truncated = joined.length > SKILLS_INDEX_MAX_CHARS
+    ? `${joined.slice(0, SKILLS_INDEX_MAX_CHARS)}\n… (truncated ${joined.length - SKILLS_INDEX_MAX_CHARS} chars)`
+    : joined;
+
+  return [
+    "",
+    "# Available Skills",
+    "",
+    "One-liner index. Call `SkillLoad({ name: \"<skill-name>\" })` to get the full body.",
+    "```",
+    truncated,
+    "```",
+  ].join("\n");
+}
+
+/** Collect all available skills from user-level and project-level directories.
+ *  Mirrors SessionManager.listSkills() but stateless — only reads name+description+path. */
+function collectAllSkills(projectRoot: string): SkillInfo[] {
+  const homeDir = os.homedir();
+  const roots: Array<{ dir: string; displayRoot: string }> = [
+    { dir: path.join(homeDir, ".agents", "skills"), displayRoot: "~/.agents/skills" },
+    { dir: path.join(projectRoot, ".deepseek-code", "skills"), displayRoot: "./.deepseek-code/skills" },
+  ];
+
+  const byName = new Map<string, SkillInfo>();
+
+  for (const { dir, displayRoot } of roots) {
+    if (!fs.existsSync(dir)) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const skillName = entry.name;
+      const skillPath = path.join(dir, skillName, "SKILL.md");
+      try {
+        if (!fs.existsSync(skillPath)) continue;
+        const stat = fs.statSync(skillPath);
+        if (!stat.isFile()) continue;
+      } catch {
+        continue;
+      }
+      const raw = fs.readFileSync(skillPath, "utf8");
+      const firstLine = raw.split("\n")[0] ?? "";
+      const nameFromMd = firstLine.startsWith("# ") ? firstLine.slice(2).trim() : skillName;
+      const descMatch = raw.match(/description:\s*(.+)/);
+      const desc = descMatch ? descMatch[1]!.trim() : "";
+      const displayPath = `${displayRoot}/${skillName}/SKILL.md`;
+      if (!byName.has(nameFromMd)) {
+        byName.set(nameFromMd, { name: nameFromMd, path: displayPath, description: desc });
+      }
+    }
+  }
+
+  return Array.from(byName.values());
 }
 
 function checkToolInstalled(tool: string): boolean {
@@ -616,6 +691,26 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
           },
         },
         required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "SkillLoad",
+      description:
+        "按需加载 Skill 的完整正文。系统提示词中的 Available Skills 仅列出名称和描述——如果确定某个 skill 对当前任务有帮助，调用此工具获取其完整指令。Skill 正文将作为上下文注入当前会话，后续轮次无需重复加载。",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Skill 名称，与 Available Skills 列表中列出的完全一致。区分大小写。",
+          },
+        },
+        required: ["name"],
         additionalProperties: false,
       },
     },
