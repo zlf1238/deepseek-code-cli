@@ -1154,7 +1154,15 @@ The candidate skills are as follows:\n\n`;
 
   async compactSession(sessionId: string, signal?: AbortSignal): Promise<void> {
     this.throwIfAborted(signal);
-    const { client, model, baseURL, thinkingEnabled, reasoningEffort } = this.createOpenAIClient();
+    // 硬编码 flash: 摘要是辅助任务，不值得付 Pro 费用。
+    // 借鉴 Reasonix: 所有辅助调用 (fold / forceSummary / subagent) 均 hard-code v4-flash + effort=high。
+    const flashInfo = this.createOpenAIClient("deepseek-v4-flash");
+    const client = flashInfo.client ?? this.createOpenAIClient().client;
+    const model = flashInfo.client ? flashInfo.model : this.createOpenAIClient().model;
+    const baseURL = flashInfo.baseURL;
+    const thinkingEnabled = true;
+    const reasoningEffort: "high" | "max" = "high";
+
     if (!client) {
       return;
     }
