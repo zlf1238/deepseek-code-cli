@@ -1218,7 +1218,7 @@ The candidate skills are as follows:\n\n`;
     const summaryMessage: SessionMessage = {
       id: crypto.randomUUID(),
       sessionId,
-      role: "system",
+      role: "assistant",
       content: `There are earlier parts of the conversation. Here is a summary: \n\n${compactedSummary}`,
       contentParams: null,
       messageParams: null,
