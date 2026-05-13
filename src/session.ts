@@ -225,6 +225,23 @@ export class SessionManager {
     return tokens;
   }
 
+  /** 借鉴 Reasonix ContextManager: 本地估算消息列表的 token 数，用于发送前预检。
+   *  保守估计——宁可高估触发不必要的 compact，也不低估导致 API 400。 */
+  private estimateMessagesTokens(messages: ChatCompletionMessageParam[]): number {
+    let total = 0;
+    for (const msg of messages) {
+      // role + content 的字符估算
+      const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+      total += this.estimateStreamTokens(msg.role) + this.estimateStreamTokens(content);
+      // tool_calls 额外估算
+      const toolCalls = (msg as { tool_calls?: unknown[] }).tool_calls;
+      if (toolCalls) {
+        total += this.estimateStreamTokens(JSON.stringify(toolCalls));
+      }
+    }
+    return Math.ceil(total);
+  }
+
   /** 从一批工具调用中提取最后一个工具调用的函数名称。 */
   private extractLastToolName(toolCalls: unknown[]): string | undefined {
     if (toolCalls.length === 0) return undefined;
@@ -980,6 +997,31 @@ The candidate skills are as follows:\n\n`;
         }
 
         const messages = this.buildOpenAIMessages(this.listSessionMessages(sessionId), currentThinkingEnabled);
+
+        // 上下文预检：借鉴 Reasonix ContextManager.decidePreflight
+        // 在发送 API 前做本地 token 估算，避免发送必然 400 的超限请求
+        const ctxMax = getContextWindowCapacity(currentModel);
+        const estimatedTokens = this.estimateMessagesTokens(messages);
+        if (estimatedTokens > ctxMax * 0.95) {
+          const preflightMsg = this.buildAssistantMessage(
+            sessionId,
+            `Estimated context ${formatTokenCount(estimatedTokens)}/${formatTokenCount(ctxMax)} (${Math.round(estimatedTokens / ctxMax * 100)}%), preflight compacting...`,
+            null
+          );
+          this.onAssistantMessage(preflightMsg, false);
+          await this.compactSession(sessionId, sessionController.signal);
+          // 用压缩后的消息重建
+          messages = this.buildOpenAIMessages(this.listSessionMessages(sessionId), currentThinkingEnabled);
+          const afterEstimate = this.estimateMessagesTokens(messages);
+          const afterMsg = this.buildAssistantMessage(
+            sessionId,
+            `Preflight compacted: ${formatTokenCount(estimatedTokens)} → ${formatTokenCount(afterEstimate)} tokens`,
+            null
+          );
+          afterMsg.meta = { asThinking: true };
+          this.onAssistantMessage(afterMsg, false);
+        }
+
         const thinkingOptions = buildThinkingRequestOptions(currentThinkingEnabled, currentBaseURL, currentReasoningEffort);
         const response = await this.createChatCompletionStream(
           currentClient,
