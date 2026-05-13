@@ -1606,14 +1606,15 @@ The candidate skills are as follows:\n\n`;
     hideResult?: boolean
   ): SessionMessage {
     const now = new Date().toISOString();
+    const shrunkContent = this.shrinkToolResult(content);
     const paramsMd = this.buildToolParamsSnippet(toolFunction);
-    const resultMd = this.buildToolResultSnippet(content);
-    const isInvisibleExecution = this.isInvisibleExecution(content);
+    const resultMd = this.buildToolResultSnippet(shrunkContent);
+    const isInvisibleExecution = this.isInvisibleExecution(shrunkContent);
     return {
       id: crypto.randomUUID(),
       sessionId,
       role: "tool",
-      content,
+      content: shrunkContent,
       contentParams: null,
       messageParams: { tool_call_id: toolCallId },
       compacted: false,
@@ -1626,6 +1627,46 @@ The candidate skills are as follows:\n\n`;
         resultMd
       }
     };
+  }
+
+  /** 借鉴 Reasonix Pillar-3：单次 tool result 超过此字符数时截断。
+   *  后续轮次如需完整内容，模型可主动 read_file 重读——
+   *  一次重读远便宜于每轮拖拽 12KB。 */
+  private static readonly MAX_TOOL_RESULT_CHARS = 6000;
+
+  private shrinkToolResult(content: string): string {
+    if (content.length <= SessionManager.MAX_TOOL_RESULT_CHARS) return content;
+
+    // 尝试解析为 JSON: 仅截断 output 字段，保留结构
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (typeof parsed.output === "string" && parsed.output.length > SessionManager.MAX_TOOL_RESULT_CHARS) {
+        const out = parsed.output;
+        const half = Math.floor(SessionManager.MAX_TOOL_RESULT_CHARS / 2);
+        const head = out.slice(0, half);
+        const tail = out.slice(-half);
+        const skipped = out.length - half * 2;
+        parsed.output = [
+          head,
+          `\n… (truncated ${skipped} chars in output, use read_file to re-fetch if needed)\n`,
+          tail,
+        ].join("");
+        return JSON.stringify(parsed, null, 2);
+      }
+    } catch {
+      // 非 JSON 内容：回退到原始字符串截断
+    }
+
+    // 原始字符串头尾保留
+    const half = Math.floor(SessionManager.MAX_TOOL_RESULT_CHARS / 2);
+    const head = content.slice(0, half);
+    const tail = content.slice(-half);
+    const skipped = content.length - half * 2;
+    return [
+      head,
+      `\n… (truncated ${skipped} chars, use read_file to re-fetch if needed)\n`,
+      tail,
+    ].join("");
   }
 
   /** 从 tool call 参数生成人类可读的步骤描述 */
