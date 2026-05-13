@@ -15,7 +15,9 @@ import { handleAskChoiceTool } from "./ask-choice-handler";
 import { handleMultiEditTool } from "./multi-edit-handler";
 import { handleTodoWriteTool } from "./todo-write-handler";
 import { handleWebFetchTool } from "./web-fetch-handler";
-import { handleRunBackgroundTool, handleJobOutputTool, handleListJobsTool } from "./background-job-handler";
+import { handleRunBackgroundTool, handleJobOutputTool, handleListJobsTool, handleStopJobTool } from "./background-job-handler";
+import { handleSearchFilesTool } from "./search-files-handler";
+import { handleGetFileInfoTool } from "./get-file-info-handler";
 
 export type CreateOpenAIClient = (overrideModel?: string) => {
   client: OpenAI | null;
@@ -140,6 +142,9 @@ export class ToolExecutor {
     this.toolHandlers.set("list_jobs", handleListJobsTool);
     // ask_choice shares the same UX infrastructure as AskUserQuestion
     this.toolHandlers.set("ask_choice", handleAskChoiceTool);
+    this.toolHandlers.set("search_files", handleSearchFilesTool);
+    this.toolHandlers.set("get_file_info", handleGetFileInfoTool);
+    this.toolHandlers.set("stop_job", handleStopJobTool);
   }
 
   private parseToolCall(toolCall: unknown): ToolCall | null {

@@ -169,3 +169,44 @@ export async function handleListJobsTool(
     metadata: { count: jobs.length },
   };
 }
+
+export async function handleStopJobTool(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
+  const jobId = typeof args.jobId === "string" ? args.jobId.trim() : "";
+  if (!jobId) {
+    return { ok: false, name: "stop_job", error: "Missing required \"jobId\" string." };
+  }
+
+  const job = getJobs(context.sessionId).get(jobId);
+  if (!job) {
+    return { ok: false, name: "stop_job", error: `Unknown jobId: ${jobId}` };
+  }
+
+  if (job.status !== "running") {
+    return { ok: true, name: "stop_job", output: `Job ${jobId} is not running (status: ${job.status}).` };
+  }
+
+  if (job.pid) {
+    try {
+      process.kill(-job.pid, "SIGTERM");
+    } catch {
+      try {
+        process.kill(job.pid, "SIGTERM");
+      } catch {
+        return { ok: false, name: "stop_job", error: `Failed to send SIGTERM to PID ${job.pid}.` };
+      }
+    }
+  }
+
+  job.status = "failed";
+  job.exitCode = -1;
+
+  return {
+    ok: true,
+    name: "stop_job",
+    output: `Stopped job ${jobId} (${job.command}).`,
+    metadata: { jobId },
+  };
+}

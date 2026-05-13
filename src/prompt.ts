@@ -955,6 +955,73 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     },
   });
 
+  tools.push({
+    type: "function",
+    function: {
+      name: "stop_job",
+      description: "停止正在运行的后台任务。发送 SIGTERM 信号终止进程。",
+      parameters: {
+        type: "object",
+        properties: {
+          jobId: {
+            type: "string",
+            description: "run_background 返回的任务 ID。",
+          },
+        },
+        required: ["jobId"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "search_files",
+      description:
+        "按文件名模式搜索文件。返回匹配文件路径列表。与 glob（按路径模式）和 grep（按内容）不同，search_files 专门搜索文件名包含指定文本的文件。对于'找包含 test 的文件'比 glob **/*test* 语义更清晰。",
+      parameters: {
+        type: "object",
+        properties: {
+          pattern: {
+            type: "string",
+            description: "文件名中要匹配的文本。例如 'test' 匹配 test.ts, user.test.tsx, test-helper.js 等。",
+          },
+          path: {
+            type: "string",
+            description: "搜索起始目录。默认为项目根目录。",
+          },
+          caseSensitive: {
+            type: "boolean",
+            description: "是否区分大小写。默认 false。",
+          },
+        },
+        required: ["pattern"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "get_file_info",
+      description:
+        "获取文件或目录的元信息：大小、行数、修改时间、类型等。在 read 大文件之前先调用此工具判断是否需要全文读取，避免超出上下文窗口。",
+      parameters: {
+        type: "object",
+        properties: {
+          file_path: {
+            type: "string",
+            description: "文件或目录的绝对路径。",
+          },
+        },
+        required: ["file_path"],
+        additionalProperties: false,
+      },
+    },
+  });
+
   return tools;
 }
 
