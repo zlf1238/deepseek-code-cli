@@ -716,6 +716,245 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     },
   });
 
+  tools.push({
+    type: "function",
+    function: {
+      name: "directory_tree",
+      description:
+        "以树形结构列出目录内容。必须查看目录结构时优先使用此工具，而非 bash ls。默认最大深度 3 层，跳过 . 开头的隐藏目录（.deepseek-code 除外）。",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "要列出的目录路径。默认为项目根目录。",
+          },
+          maxDepth: {
+            type: "number",
+            description: "最大递归深度。默认为 3。",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "ask_choice",
+      description:
+        "向用户展示 2-6 个预定义选项，使用弹窗选择器。当用户需要在方案之间选择、或你要确认一个偏好决策时使用。支持多选和自定义答案。对于是/否问题或开放式文本输入，使用 AskUserQuestion。",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description: "要呈现给用户的问题。",
+          },
+          options: {
+            type: "array",
+            description: "预定义选项（最多 6 个）。",
+            items: {
+              type: "object",
+              properties: {
+                id: {
+                  type: "string",
+                  description: "短标识符（如 A、B、C）。如果省略，则自动分配。",
+                },
+                label: {
+                  type: "string",
+                  description: "选项显示文本。",
+                },
+                description: {
+                  type: "string",
+                  description: "选项说明或提示。",
+                },
+              },
+              required: ["label"],
+            },
+          },
+          multiSelect: {
+            type: "boolean",
+            description: "是否允许选择多个选项。默认 false。",
+          },
+          allowCustom: {
+            type: "boolean",
+            description: "用户是否可以输入自定义答案。默认 true。",
+          },
+        },
+        required: ["question", "options"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "multi_edit",
+      description:
+        "在一次原子操作中编辑多个文件。每次编辑可以替换文件中某个字符串的所有匹配项或仅首个匹配项。编辑按顺序应用：如果一次编辑失败，后续编辑仍会尝试。",
+      parameters: {
+        type: "object",
+        properties: {
+          edits: {
+            type: "array",
+            description: "要执行的编辑操作列表。",
+            items: {
+              type: "object",
+              properties: {
+                file_path: {
+                  type: "string",
+                  description: "要编辑的文件绝对路径。",
+                },
+                old_string: {
+                  type: "string",
+                  description: "要替换的文本。",
+                },
+                new_string: {
+                  type: "string",
+                  description: "替换后的文本（必须与 old_string 不同）。",
+                },
+                replace_all: {
+                  type: "boolean",
+                  description: "替换所有匹配项。默认 false（仅首个）。",
+                },
+                expected_occurrences: {
+                  type: "number",
+                  description: "当 replace_all 为 true 时，预期的匹配次数——安全校验。",
+                },
+              },
+              required: ["file_path", "old_string", "new_string"],
+            },
+          },
+        },
+        required: ["edits"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "todo_write",
+      description:
+        "会话内轻量任务追踪。用于 3+ 步骤的任务，防止遗漏。每次调用替换整个列表。最多一个条目处于 in_progress 状态。传 [] 清空。",
+      parameters: {
+        type: "object",
+        properties: {
+          todos: {
+            type: "array",
+            description: "任务列表。传 [] 清空。",
+            items: {
+              type: "object",
+              properties: {
+                content: {
+                  type: "string",
+                  description: "任务描述，用于 pending/completed 状态显示。命令式（如 'Add tests'）。",
+                },
+                activeForm: {
+                  type: "string",
+                  description: "in_progress 状态时的显示文本。使用进行时形式（如 'Adding tests'）。",
+                },
+                status: {
+                  type: "string",
+                  description: "pending / in_progress / completed",
+                  enum: ["pending", "in_progress", "completed"],
+                },
+              },
+              required: ["content", "status"],
+            },
+          },
+        },
+        required: ["todos"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description:
+        "通过 HTTP 抓取 URL 的文本内容。使用 curl 获取，剥离 HTML 标签。用于读取文档、API 参考、issue 页面等。搜索用 WebSearch。",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "要抓取的 URL。必须以 http:// 或 https:// 开头。",
+          },
+          maxChars: {
+            type: "number",
+            description: "返回的最大字符数。默认 10000。",
+          },
+        },
+        required: ["url"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "run_background",
+      description:
+        "启动后台 shell 命令执行。返回一个 job ID，可通过 job_output 查询输出，通过 list_jobs 查看所有任务。用于编译、运行测试、启动开发服务器等长时间运行的任务——这些不应阻塞主循环。",
+      parameters: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description: "要执行的 shell 命令。",
+          },
+          description: {
+            type: "string",
+            description: "任务的简短描述，用于 UI 显示。例如 'Running npm test'。",
+          },
+        },
+        required: ["command"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "job_output",
+      description:
+        "获取后台任务的当前输出。如果任务仍在运行，返回迄今已捕获的输出。如果已完成，返回完整输出。",
+      parameters: {
+        type: "object",
+        properties: {
+          jobId: {
+            type: "string",
+            description: "run_background 返回的任务 ID。",
+          },
+        },
+        required: ["jobId"],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "list_jobs",
+      description: "列出当前会话中所有后台任务及其状态。",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  });
+
   return tools;
 }
 
