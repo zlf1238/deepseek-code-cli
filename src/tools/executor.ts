@@ -96,6 +96,21 @@ export class ToolExecutor {
     this.registerToolHandlers();
   }
 
+  /** 借鉴 Reasonix: 只读工具可并行安全执行。写入/交互工具必须串行。 */
+  private static readonly PARALLEL_SAFE_TOOLS = new Set([
+    "read", "glob", "grep", "directory_tree", "search_files",
+    "get_file_info", "web_fetch", "WebSearch", "SkillLoad",
+    "list_jobs", "job_output",
+  ]);
+
+  /** 借鉴 Reasonix: 并行最大分块数。可通过 REASONIX_PARALLEL_MAX 环境变量覆写。 */
+  private static readonly PARALLEL_MAX =
+    Math.min(Number.parseInt(process.env.REASONIX_PARALLEL_MAX ?? "3", 10) || 3, 16);
+
+  private isParallelSafe(name: string): boolean {
+    return ToolExecutor.PARALLEL_SAFE_TOOLS.has(name);
+  }
+
   async executeToolCalls(
     sessionId: string,
     toolCalls: unknown[],
@@ -106,20 +121,57 @@ export class ToolExecutor {
       .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
 
     const executions: ToolCallExecution[] = [];
-    for (const toolCall of parsedCalls) {
-      if (hooks?.shouldStop?.()) {
-        break;
+    let callIdx = 0;
+
+    while (callIdx < parsedCalls.length) {
+      if (hooks?.shouldStop?.()) break;
+
+      // 借鉴 Reasonix: 将连续的可并行工具调用分组
+      const chunk: ToolCall[] = [];
+      while (
+        callIdx < parsedCalls.length &&
+        chunk.length < ToolExecutor.PARALLEL_MAX &&
+        this.isParallelSafe(parsedCalls[callIdx]!.function.name)
+      ) {
+        chunk.push(parsedCalls[callIdx++]!);
       }
-      const result = await this.executeToolCall(sessionId, toolCall, hooks);
-      executions.push({
-        toolCallId: toolCall.id,
-        content: this.formatToolResult(result),
-        result
-      });
-      if (hooks?.shouldStop?.()) {
-        break;
+
+      // 不可并行的工具单独成组（串行屏障）
+      if (chunk.length === 0) {
+        chunk.push(parsedCalls[callIdx++]!);
       }
+
+      // 并行执行分块: Promise.allSettled 竞争, 结果按声明顺序收集
+      if (chunk.length > 1) {
+        const settled = await Promise.allSettled(
+          chunk.map((c) => this.executeToolCall(sessionId, c, hooks)),
+        );
+        for (let k = 0; k < chunk.length; k++) {
+          const call = chunk[k]!;
+          const s = settled[k]!;
+          const result: ToolExecutionResult =
+            s.status === "fulfilled"
+              ? s.value
+              : { ok: false, name: call.function.name, error: String(s.reason) };
+          executions.push({
+            toolCallId: call.id,
+            content: this.formatToolResult(result),
+            result,
+          });
+        }
+      } else {
+        const call = chunk[0]!;
+        const result = await this.executeToolCall(sessionId, call, hooks);
+        executions.push({
+          toolCallId: call.id,
+          content: this.formatToolResult(result),
+          result,
+        });
+      }
+
+      if (hooks?.shouldStop?.()) break;
     }
+
     return executions;
   }
 
