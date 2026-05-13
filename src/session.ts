@@ -8,7 +8,7 @@ import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
 import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice, DEEPSEEK_V4_FLASH } from "./model-capabilities";
 import type { PricingSnapshot, SwitchContext } from "./model-capabilities";
-import { getCompactPrompt, getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "./prompt";
+import { getCompactPrompt, getSystemPrompt, getTools } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 
 const MAX_SESSION_ENTRIES = 50;
@@ -757,15 +757,17 @@ The candidate skills are as follows:\n\n`;
 
     // 提前获取主模型，用于选择对应模型优化的系统提示词
     const primaryModel = this.createOpenAIClient().model;
-    const systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions());
-    const systemMessage = this.buildSystemMessage(sessionId, systemPrompt);
-    this.appendSessionMessage(sessionId, systemMessage);
+    let systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions());
 
+    // AGENTS.md / REASONIX.md 烘焙进 system prompt 字符串，而非独立 system 消息。
+    // 借鉴 Reasonix: project memory 是前缀的原子组成部分，确保一条消息发给 API。
     const agentInstructions = this.loadAgentInstructions();
     if (agentInstructions) {
-      const instructionsMessage = this.buildSystemMessage(sessionId, agentInstructions);
-      this.appendSessionMessage(sessionId, instructionsMessage);
+      systemPrompt = `${systemPrompt}\n\n# Project Instructions\n\n${agentInstructions}`;
     }
+
+    const systemMessage = this.buildSystemMessage(sessionId, systemPrompt);
+    this.appendSessionMessage(sessionId, systemMessage);
 
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
     this.appendSessionMessage(sessionId, userMessage);
@@ -925,13 +927,16 @@ The candidate skills are as follows:\n\n`;
             currentBaseURL = next.baseURL ?? primary.baseURL;
             currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
 
-            // 将切换原因追加为隐藏系统消息
-            const switchMessage = this.buildSystemMessage(
-              sessionId,
-              `${getFlashAutoSwitchMessage()}\n\n[价格策略] ${switchReason}`
+            // 模型切换是客户端行为，不注入 API 可见消息以免截断缓存前缀。
+            // 借鉴 Reasonix: 切换仅改变 client 变量，对 API 完全透明。
+            this.onAssistantMessage(
+              this.buildAssistantMessage(
+                sessionId,
+                `[模型切换] ${switchReason}`,
+                null
+              ),
+              false
             );
-            this.appendSessionMessage(sessionId, switchMessage);
-            this.onAssistantMessage(switchMessage, false);
             wasAutoSwitched = true;
           }
           // 若 next client 为 null（如未配置 flash），保持当前模型
@@ -1017,12 +1022,15 @@ The candidate skills are as follows:\n\n`;
               currentReasoningEffort = proClient.reasoningEffort ?? primary.reasoningEffort;
               wasAutoSwitched = false;
 
-              const fallbackMsg = this.buildSystemMessage(
-                sessionId,
-                `[模型回退] Flash ${isRefusal ? "拒绝回答" : "返回空响应"}，已升级为 ${primaryModel} 进行重试。`
+              // 模型回退是客户端行为，仅通知 UI。
+              this.onAssistantMessage(
+                this.buildAssistantMessage(
+                  sessionId,
+                  `[模型回退] Flash ${isRefusal ? "拒绝回答" : "返回空响应"}，已升级为 ${primaryModel} 进行重试。`,
+                  null
+                ),
+                false
               );
-              this.appendSessionMessage(sessionId, fallbackMsg);
-              this.onAssistantMessage(fallbackMsg, false);
               toolCalls = null;  // 重置，以便 Pro 重新分析
               continue;  // 使用 Pro 重试（不消耗迭代次数）
             }
