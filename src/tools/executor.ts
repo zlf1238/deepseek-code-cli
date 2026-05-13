@@ -240,15 +240,26 @@ export class ToolExecutor {
         return { ok: false, error: "InputParseError: Tool arguments must be a JSON object." };
       }
       return { ok: true, args: parsed as Record<string, unknown> };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        ok: false,
-        error:
-          `InputParseError: Failed to parse tool arguments: ${message}. ` +
-          "Ensure the tool call arguments are valid JSON. Prefer Edit over Write for large existing-file changes."
-      };
+    } catch {
+      // 借鉴 Reasonix Pillar-2 truncation pass: 尝试本地修复截断的 JSON
+      try {
+        const { repairTruncatedJson } = require("../repair/truncation");
+        const result = repairTruncatedJson(rawArguments);
+        if (result.changed) {
+          const parsed = JSON.parse(result.repaired);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return { ok: true, args: parsed as Record<string, unknown> };
+          }
+        }
+      } catch { /* repair failed */ }
     }
+
+    return {
+      ok: false,
+      error:
+        "InputParseError: Failed to parse tool arguments as JSON. " +
+        "Ensure the tool call arguments are valid JSON. Prefer Edit over Write for large existing-file changes.",
+    };
   }
 
   private formatToolResult(result: ToolExecutionResult): string {

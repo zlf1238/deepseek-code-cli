@@ -10,6 +10,8 @@ import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice, 
 import type { PricingSnapshot, SwitchContext } from "./model-capabilities";
 import { getCompactPrompt, getSystemPrompt, getTools } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
+import { StormBreaker } from "./repair/storm";
+import { scavengeToolCalls } from "./repair/scavenge";
 
 const MAX_SESSION_ENTRIES = 50;
 const COMPACT_PROMPT_TOKEN_RATIO = 0.8;
@@ -206,6 +208,8 @@ export class SessionManager {
   private activePromptController: AbortController | null = null;
   private readonly sessionControllers = new Map<string, AbortController>();
   private readonly toolExecutor: ToolExecutor;
+  /** 借鉴 Reasonix Pillar-2 storm pass: 抑制重复工具调用 */
+  private readonly stormBreaker = new StormBreaker();
 
   constructor(options: SessionManagerOptions) {
     this.projectRoot = options.projectRoot;
@@ -1043,6 +1047,25 @@ The candidate skills are as follows:\n\n`;
         const rawThinking = (message as { reasoning_content?: unknown } | undefined)?.reasoning_content;
         const thinking = typeof rawThinking === "string" ? rawThinking : null;
         const refusal = (message as { refusal?: string } | undefined)?.refusal ?? null;
+
+        // 借鉴 Reasonix Pillar-2 scavenge pass: 从 reasoning_content 中捞取遗漏的 tool call
+        if (thinking && !toolCalls) {
+          const toolNames = new Set(
+            getTools(this.getPromptToolOptions()).map((t) => t.function.name),
+          );
+          const scavenged = scavengeToolCalls(thinking, toolNames);
+          if (scavenged.calls.length > 0) {
+            toolCalls = scavenged.calls;
+            const note = this.buildAssistantMessage(
+              sessionId,
+              `[repair] ${scavenged.notes.join("; ")}`,
+              null,
+            );
+            note.meta = { asThinking: true };
+            this.appendSessionMessage(sessionId, note);
+            this.onAssistantMessage(note, false);
+          }
+        }
         // const html = content ? this.renderMarkdown(content) : "";
 
         if (this.isInterrupted(sessionId)) {
@@ -1820,6 +1843,26 @@ The candidate skills are as follows:\n\n`;
         const stepMessage = this.buildStepIndicatorMessage(sessionId, stepDesc);
         this.appendSessionMessage(sessionId, stepMessage);
         this.onAssistantMessage(stepMessage, true);
+      }
+
+      // Storm check: 借鉴 Reasonix Pillar-2 storm pass
+      const parsedCall = (this.toolExecutor as any).parseToolCall(rawTc);
+      if (parsedCall) {
+        const stormResult = this.stormBreaker.inspect(parsedCall);
+        if (stormResult.suppress) {
+          const suppressMsg = this.buildToolMessage(
+            sessionId,
+            tcId || "storm_suppressed",
+            JSON.stringify({ ok: false, name: getName(rawTc) ?? "unknown", error: stormResult.reason }),
+            getToolFunc(tcId),
+            true,
+          );
+          this.appendSessionMessage(sessionId, suppressMsg);
+          this.onAssistantMessage(suppressMsg, true);
+          toolErrors++;
+          toolTotal++;
+          continue;
+        }
       }
 
       // 2. 执行这一个 tool call
