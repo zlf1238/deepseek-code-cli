@@ -12,9 +12,11 @@
 
 | 瓶颈 | 位置 | 影响 |
 |---|---|---|
-| **工具输出被一刀切截断** | `session.ts:shrinkToolResult` | Bash/Grep/Glob 大输出被截断为头尾各 3000 字符，中间内容完全消失 |
+| **工具输出被一刀切截断** | `session.ts:shrinkToolResult` | Bash/Grep/Glob/DirectoryTree 大输出被截断为头尾各 3000 字符，中间内容完全消失 |
 | **截断提示语全错** | `session.ts:1843` | 所有非 Read 工具都说 `use read_file to re-fetch`——Bash 命令输出不在文件系统上 |
 | **无按需检索** | 缺失 | 模型截断后只能重跑命令，带副作用的操作（`npm test`、`rm`）被迫重复执行 |
+| **Grep 海量匹配丢失** | `grep-handler.ts` | 200 条匹配被 truncateOutput 截断到 30K chars，中间匹配不可见 |
+| **DirectoryTree 大项目溢出** | `directory-tree-handler.ts` | 2000 行目录树被 shrinkToolResult 截断为头尾各 ~50 行 |
 
 ```
 Bash("npm test") 输出 8000 行 (80KB)
@@ -23,6 +25,19 @@ Bash("npm test") 输出 8000 行 (80KB)
   → 模型被告知 "use read_file to re-fetch" ← 完全不可操作
   → 下一轮模型重跑 npm test ← 30秒 + 80KB token
   → 循环浪费
+```
+
+同样的问题也存在于 Grep 和 DirectoryTree：
+
+```
+Grep("pattern", ".") 匹配 200 条 → 格式化 ~40KB
+  → truncateOutput 截断到 30K chars
+  → shrinkToolResult 截断到 6K chars
+  → 中间 ~100 条匹配消失，模型无法知道还有更多
+
+DirectoryTree("/", maxDepth=3) 输出 2500 行
+  → shrinkToolResult 截断为头尾各 ~50 行
+  → 中间 2400 行目录结构消失
 ```
 
 ### 1.2 跨 Turn 重复传输
@@ -51,9 +66,11 @@ Bash("npm test") 输出 8000 行 (80KB)
 | 设计 | DeepSeek-TUI 实现 | 本项目适配 | ROI |
 |---|---|---|---|
 | **var_handle + handle_read** | RLM/子Agent/文件通用 | 已完成（仅限 Read 工具） | — |
-| **retrieve_tool_result** | 溢出输出统一查询入口 | **本次实现** | 极高 |
-| **shrinkToolResult 按工具类型生成提示语** | LargeOutputRouter 引导 | **本次实现** | 极高 |
-| **500K token floor** | MIN_AUTO_COMPACTION_TOKENS | **本次实现** | 高 |
+| **retrieve_tool_result** | 溢出输出统一查询入口 | ✅ 已实现 | 极高 |
+| **shrinkToolResult 按工具类型生成提示语** | LargeOutputRouter 引导 | ✅ 已实现 | 极高 |
+| **500K token floor** | MIN_AUTO_COMPACTION_TOKENS | ✅ 已实现 | 高 |
+| **Grep 结果 handle 化** | >100条匹配时溢出 | ✅ 已实现 | 极高 |
+| **DirectoryTree 结果 handle 化** | >500条目时溢出 | ✅ 已实现 | 高 |
 | **LargeOutputRouter (Flash摘要)** | V4-Flash 子代理摘要 | 预留（需异步 LLM 调用）| 中 |
 | **Pin/Summarize 二分** | plan_compaction + enforce_tool_call_pairs | 预留 | 中 |
 
@@ -250,7 +267,24 @@ shrinkToolResult 内通过闭包直接调用，无需 `this.` 前缀。
 5. 列出所有可用 handle        → 无 ref 参数时
 ```
 
-### 4.5 并行安全标记
+### 4.5 各工具 handle 化阈值
+
+借鉴 DeepSeek-TUI 的 LargeOutputRouter 按工具区分阈值的思路，各工具在 handler 层面做主动 handle 化：
+
+| 工具 | 阈值 | 预览量 | 位置 |
+|------|------|--------|------|
+| `grep` | 匹配数 > 100 | 前 40 条匹配 | `grep-handler.ts` |
+| `directory_tree` | 条目数 > 500 | 前 150 行 | `directory-tree-handler.ts` |
+| `bash` | 输出 > 6000 chars | shrinkToolResult 接管 | `session.ts` |
+| `glob` | 输出 > 6000 chars | shrinkToolResult 接管 | `session.ts` |
+| `read` | 输出 > 6000 chars | shrinkToolResult 接管 | `session.ts` |
+
+Grep 和 DirectoryTree 的 handle 化在 **handler 层主动触发**（不等 shrinkToolResult 截断），优势是：
+- 可以在预览中包含**结构化的匹配摘要**（匹配的文件名 + 行号列表）
+- 截断点可控（按匹配条目数而非字符数），语义更清晰
+- 与 shrinkToolResult 形成**双重保护**：handler 层先 handle 化，shrinkToolResult 再兜底
+
+### 4.6 并行安全标记
 
 ```typescript
 // executor.ts
@@ -293,6 +327,35 @@ private static readonly PARALLEL_SAFE_TOOLS = new Set([
 节省: 97.9%
 ```
 
+Grep 海量匹配场景：
+
+```
+场景：模型在大型项目中搜索 "useState"，匹配 300 条
+
+优化前: 300 条匹配 → 格式化 ~60KB → truncateOutput → 30KB → shrink → 6KB
+        → 模型只看到前~20条后~20条，中间 260 条消失
+        → 每轮搜索都在 context 中占据 6KB
+
+优化后: 300 条 → handle 化触发 (>100) → 预览前 40 条 + handle
+        → retrieve_tool_result(mode="query", query="MyComponent")
+        → 仅返回相关匹配 ~500 chars
+        节省: 92%
+```
+
+DirectoryTree 大项目场景：
+
+```
+场景：项目有 2500 个文件，maxDepth=3 输出 3000 行 (120KB)
+
+优化前: 3000 行 → shrink 截断为头尾 ~50 行 → 中间 2900 行消失
+        → 模型不知道 src/components/ 下有什么
+
+优化后: 3000 行 → handle 化触发 (>500 entries) → 预览前 150 行 + handle
+        → retrieve_tool_result(mode="query", query="components/")
+        → 仅返回匹配目录子树 ~30 行
+        节省: 90%
+```
+
 ### 5.3 压缩阈值保护
 
 ```
@@ -317,13 +380,14 @@ Session 结束后: GC 自动释放
 |---|---|---|
 | **检索工具名** | `retrieve_tool_result` | `retrieve_tool_result`（同名） |
 | **检索模式** | summary/head/tail/lines/query | 相同，完全对齐 |
-| **Handle 类型** | 通用 var_handle (RLM/子Agent/文件) | 仅工具输出 |
+| **Handle 类型** | 通用 var_handle (RLM/子Agent/文件) | 工具输出（Bash/Grep/DirTree/Read）+ 文件 Read (snippet) |
 | **溢出存储** | 未明示 | `toolOutputsBySession` Map + SHA256 去重 |
-| **截断提示语** | 引导 handle_read / retrieve_tool_result | 按工具类型生成，含 handle 引用 |
+| **截断提示语** | 引导 handle_read / retrieve_tool_result | 按工具类型 + 按阈值生成，含 handle 引用 |
 | **Compaction floor** | 500K | 500K（相同） |
+| **Per-tool handle 阈值** | LargeOutputRouter 统一 4096 token | Grep>100条、DirTree>500条目、其余>6000chars |
 | **LargeOutputRouter** | Flash 子代理摘要 | 预留，待后续实现 |
 | **Pin/Summarize** | plan_compaction + 配对完整性 | 预留，待后续实现 |
-| **复杂度** | ~3000 行 (含 RLM + RPC) | ~750 行 (仅 token 节省) |
+| **复杂度** | ~3000 行 (含 RLM + RPC) | ~1100 行 (token 节省 + handle 化) |
 
 本项目采用了 DeepSeek TUI 的核心思想（溢出存储 + 按需检索 + 按工具类型引导 + floor 保护），但去掉了 RLM、MCP、子代理等重型依赖，仅针对工具输出这一最高频 token 浪费场景。
 
@@ -346,8 +410,8 @@ Session 结束后: GC 自动释放
 
 1. **LargeOutputRouter (Flash 摘要)**：当输出超过阈值时，异步调用 Flash 生成摘要，摘要放入 context，原始内容溢出
 2. **Pin/Summarize 二分 Compaction**：压缩时保留 diff/错误/文件路径命中的消息，其余消息才做摘要
-3. **Grep 结果 handle 化**：匹配超过 100 条时返回 handle 而非截断列表
-4. **Directory tree 结果 handle 化**：大项目（>500 文件）返回 handle
+3. ~~**Grep 结果 handle 化**~~ ✅ 已实现：匹配超过 100 条时返回 handle 而非截断列表
+4. ~~**Directory tree 结果 handle 化**~~ ✅ 已实现：大项目（>500 条目）返回 handle
 5. **跨 session 输出缓存**：同一项目跨 session 复用工具输出（需要 session_id 到 project 的映射）
 6. **磁盘溢出**：超过 50MB 内存阈值时自动溢出到 `~/.deepseek-code/tool_outputs/` 磁盘文件
 7. **Prompt 前缀静态化**：缓存 skillsIndex 和 runtimeContext，避免每次 getSystemPrompt 做磁盘 I/O
@@ -361,6 +425,8 @@ Session 结束后: GC 自动释放
 | `src/tools/retrieve-tool-result-handler.ts` | retrieve_tool_result 工具实现 (288行新增) |
 | `src/tools/state.ts` | 工具输出溢出存储层 (+125行) |
 | `src/tools/executor.ts` | 工具注册 + formatToolResult 增加 tool_call_id |
+| `src/tools/grep-handler.ts` | Grep handle 化：>100条匹配时溢出 (+45行) |
+| `src/tools/directory-tree-handler.ts` | DirectoryTree handle 化：>500条目时溢出 (+47行) |
 | `src/session.ts` | shrinkToolResult 溢出 + buildReFetchHint + extractToolName + 500K floor |
 | `src/prompt.ts` | retrieve_tool_result 工具定义 (+48行) |
 | `docs/varhandle设计方案.md` | var_handle / handle_read 设计文档（Read 工具专用） |
@@ -371,8 +437,11 @@ Session 结束后: GC 自动释放
 ## 十、Commit 记录
 
 ```
+63798bc feat: DirectoryTree结果handle化——条目数超过500时溢出全量，返回预览+handle引用
+6d13546 feat: Grep结果handle化——匹配超过100条时溢出全量，返回预览+handle引用
+96116f1 docs: 省token优化设计方案文档
 d54d8fc 省token优化: 借鉴DeepSeek-TUI实现多项token节省机制
 ```
 
-- 编译验证: tsc --noEmit 零错误
+- 编译验证: tsc --noEmit 全部零错误
 - 测试结果: 14/16 通过（2个失败因测试用例 token 数低于 500K floor，压缩逻辑被正确跳过）
