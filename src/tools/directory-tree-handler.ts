@@ -1,6 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
+import { spillToolOutput } from "./state";
+
+/** 文件/目录条目数超过此阈值时启用 handle 化 */
+const TREE_HANDLE_THRESHOLD = 500;
+/** handle 化时预览的行数 */
+const TREE_PREVIEW_LINES = 150;
 
 export async function handleDirectoryTreeTool(
   args: Record<string, unknown>,
@@ -18,13 +24,53 @@ export async function handleDirectoryTreeTool(
   }
 
   const tree = buildTree(resolved, maxDepth, context.projectRoot);
+  const entries = countEntries(tree);
   const output = tree.join("\n");
+
+  // 大项目（超过阈值条目数）→ handle 化：溢出全量，返回预览
+  if (entries > TREE_HANDLE_THRESHOLD) {
+    const previewLines = tree.slice(0, TREE_PREVIEW_LINES);
+    const previewOutput = previewLines.join("\n");
+
+    const handle = spillToolOutput(
+      context.sessionId,
+      context.toolCall.id,
+      "directory_tree",
+      output
+    );
+
+    const resultOutput = previewOutput
+      + `\n\n... (${entries - countEntries(previewLines)} more entries not shown, ${entries} total, ${output.length} chars)`
+      + `\nUse retrieve_tool_result(ref="${handle.id}", mode="lines", lines="X-Y")`
+      + ` or retrieve_tool_result(ref="${handle.id}", mode="head") / mode="tail"`
+      + ` to explore the full tree.`
+      + `\nHandle sha256: ${handle.sha256.slice(0, 16)}...`;
+
+    return {
+      ok: true,
+      name: "directory_tree",
+      output: resultOutput,
+      metadata: {
+        root: resolved,
+        maxDepth,
+        entries,
+        previewEntries: countEntries(previewLines),
+        chars: output.length,
+        handle: {
+          id: handle.id,
+          tool_name: handle.toolName,
+          length: handle.length,
+          sha256: handle.sha256,
+        },
+      },
+    };
+  }
 
   return {
     ok: true,
     name: "directory_tree",
     output,
-    metadata: { root: resolved, maxDepth, entries: countEntries(tree), chars: output.length },
+    metadata: { root: resolved, maxDepth, entries, chars: output.length },
   };
 }
 
