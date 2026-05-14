@@ -250,8 +250,27 @@ export async function handleReadTool(
     }
 
     const textResult = readTextFile(filePath, offset.value, limit.value);
+
+    // 无 offset/limit 且文件超过首窗口时，后台全量加载到缓存
+    const isImplicitFullRead = offset.value === undefined && limit.value === undefined;
+    const MAX_FULL_CACHE_BYTES = 10 * 1024 * 1024; // 10MB 上限
+    let cachedContent = textResult.content;
+    let snippetEndLine = textResult.endLine;
+
+    if (isImplicitFullRead && textResult.isPartialView) {
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.size <= MAX_FULL_CACHE_BYTES) {
+          cachedContent = fs.readFileSync(filePath, "utf8");
+          snippetEndLine = cachedContent.split("\n").length;
+        }
+      } catch {
+        // 后台全量加载失败时回退到切片内容
+      }
+    }
+
     markFileRead(context.sessionId, filePath, {
-      content: textResult.content,
+      content: cachedContent,
       timestamp: textResult.timestamp,
       offset: textResult.isPartialView ? textResult.startLine : undefined,
       limit:
@@ -265,24 +284,32 @@ export async function handleReadTool(
     const snippet = createSnippet(
       context.sessionId,
       filePath,
-      textResult.startLine,
-      textResult.endLine,
-      textResult.output
+      1, // snippet 始终从第 1 行开始
+      snippetEndLine, // 覆盖全缓存范围
+      textResult.output.length > 500
+        ? textResult.output.slice(0, 500)
+        : textResult.output
     );
+    const metadata: Record<string, unknown> = {};
+    if (snippet) {
+      metadata.snippet = {
+        id: snippet.id,
+        filePath: snippet.filePath,
+        startLine: snippet.startLine,
+        endLine: snippet.endLine
+      };
+    }
+    metadata.total_lines = textResult.totalLines;
+    if (isImplicitFullRead && textResult.isPartialView) {
+      metadata.hint =
+        `File has ${textResult.totalLines} lines. ` +
+        `Use handle_read(snippet_id="${snippet?.id}", lines="X-Y") to fetch arbitrary ranges across turns.`;
+    }
     return {
       ok: true,
       name: "read",
       output: textResult.output,
-      metadata: snippet
-        ? {
-            snippet: {
-              id: snippet.id,
-              filePath: snippet.filePath,
-              startLine: snippet.startLine,
-              endLine: snippet.endLine
-            }
-          }
-        : undefined
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

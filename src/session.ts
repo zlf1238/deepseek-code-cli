@@ -12,6 +12,7 @@ import { getCompactPrompt, getSystemPrompt, getTools } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 import { StormBreaker } from "./repair/storm";
 import { scavengeToolCalls } from "./repair/scavenge";
+import { restoreSnippetsFromHistory } from "./tools/state";
 
 const MAX_SESSION_ENTRIES = 50;
 const COMPACT_PROMPT_TOKEN_RATIO = 0.8;
@@ -1000,7 +1001,10 @@ The candidate skills are as follows:\n\n`;
           }
         }
 
-        const messages = this.buildOpenAIMessages(this.listSessionMessages(sessionId), currentThinkingEnabled);
+        const sessionMessages = this.listSessionMessages(sessionId);
+        // 从历史消息恢复 snippet 元数据，使 handle_read 可在 resume 后回源
+        restoreSnippetsFromHistory(sessionId, sessionMessages);
+        let messages = this.buildOpenAIMessages(sessionMessages, currentThinkingEnabled);
 
         // 上下文预检：借鉴 Reasonix ContextManager.decidePreflight
         // 在发送 API 前做本地 token 估算，避免发送必然 400 的超限请求
@@ -1711,9 +1715,18 @@ The candidate skills are as follows:\n\n`;
         const head = out.slice(0, half);
         const tail = out.slice(-half);
         const skipped = out.length - half * 2;
+        // 如果存在 snippet_id，引导模型用 handle_read 而非 read_file
+        const meta = parsed.metadata as Record<string, unknown> | undefined;
+        const snippetId = meta?.snippet
+          ? (meta.snippet as Record<string, unknown>).id
+          : undefined;
+        const reFetchHint =
+          typeof snippetId === "string"
+            ? `use handle_read(snippet_id="${snippetId}", lines="X-Y") to fetch arbitrary ranges`
+            : "use read_file to re-fetch if needed";
         parsed.output = [
           head,
-          `\n… (truncated ${skipped} chars in output, use read_file to re-fetch if needed)\n`,
+          `\n… (truncated ${skipped} chars in output, ${reFetchHint})\n`,
           tail,
         ].join("");
         return JSON.stringify(parsed, null, 2);
@@ -1859,8 +1872,6 @@ The candidate skills are as follows:\n\n`;
           );
           this.appendSessionMessage(sessionId, suppressMsg);
           this.onAssistantMessage(suppressMsg, true);
-          toolErrors++;
-          toolTotal++;
           continue;
         }
       }

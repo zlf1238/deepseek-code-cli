@@ -1021,6 +1021,32 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
       },
     },
   });
+  tools.push({
+    type: "function",
+    function: {
+      name: "handle_read",
+      description:
+        "按之前 Read 工具返回的 snippet_id 读取文件的特定行范围。" +
+        "文件未变时直接从内存缓存切片（零 I/O），文件变更时自动从磁盘回源。" +
+        "跨 Turn 有效 —— 后续轮次无需重新 Read 全文件即可获取精确区域。",
+      parameters: {
+        type: "object",
+        properties: {
+          snippet_id: {
+            type: "string",
+            description: "由 Read 工具在 metadata.snippet.id 中返回的 snippet id。"
+          },
+          lines: {
+            type: "string",
+            description:
+              '行范围，格式 "START-END"（如 "100-200"）或 "START-"（如 "100-" 默认 200 行窗口）。'
+          }
+        },
+        required: ["snippet_id", "lines"],
+        additionalProperties: false
+      }
+    }
+  });
 
   return tools;
 }
