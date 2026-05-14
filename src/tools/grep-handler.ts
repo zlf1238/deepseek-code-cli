@@ -2,10 +2,16 @@ import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 import { loadRTKConfig, wrapGrepArgs } from "./rtk";
+import { spillToolOutput, type ToolOutputHandle } from "./state";
 
 const MAX_OUTPUT_CHARS = 30000;
 const MAX_CAPTURE_CHARS = 10 * 1024 * 1024;
 const DEFAULT_EXCLUDE_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".nuxt"];
+
+/** 匹配超过此数量时启用 handle 化：返回预览 + handle 引用 */
+const GREP_HANDLE_THRESHOLD = 100;
+/** handle 化时预览的匹配条数 */
+const GREP_PREVIEW_COUNT = 40;
 
 type GrepMatch = {
   file: string;
@@ -241,6 +247,43 @@ export async function handleGrepTool(
 
   const matches = parseGrepOutput(stdout, contextLines);
   const formatted = formatGrepResult(matches);
+
+  // 匹配数超过阈值 → handle 化：溢出全量，返回预览
+  if (matches.length > GREP_HANDLE_THRESHOLD) {
+    const previewMatches = matches.slice(0, GREP_PREVIEW_COUNT);
+    const previewText = formatGrepResult(previewMatches);
+    const moreCount = matches.length - GREP_PREVIEW_COUNT;
+
+    const handle = spillToolOutput(
+      context.sessionId,
+      context.toolCall.id,
+      "grep",
+      formatted
+    );
+
+    const output = `${previewText}
+
+... (${moreCount} more matches not shown, ${matches.length} total)
+Use retrieve_tool_result(ref="${handle.id}", mode="lines", lines="X-Y") or retrieve_tool_result(ref="${handle.id}", mode="query", query="substring") to fetch the remaining matches.
+Handle sha256: ${handle.sha256.slice(0, 16)}...`;
+
+    return {
+      ok: true,
+      name: "grep",
+      output,
+      metadata: {
+        matchCount: matches.length,
+        previewCount: GREP_PREVIEW_COUNT,
+        handle: {
+          id: handle.id,
+          tool_name: handle.toolName,
+          length: handle.length,
+          sha256: handle.sha256,
+        },
+      },
+    };
+  }
+
   const { text, truncated } = truncateOutput(formatted);
 
   return {
