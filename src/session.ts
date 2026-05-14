@@ -1445,7 +1445,14 @@ The candidate skills are as follows:\n\n`;
   }
 
   private getProjectCode(projectRoot: string): string {
-    return projectRoot.replace(/[\\/]/g, "-").replace(/:/g, "");
+    let resolved = projectRoot;
+    try {
+      resolved = fs.realpathSync(projectRoot);
+    } catch {
+      // realpathSync may fail if the directory does not exist yet;
+      // fall back to the original path.
+    }
+    return resolved.replace(/[\\/]/g, "-").replace(/:/g, "");
   }
 
   private getProjectStorage(): {
