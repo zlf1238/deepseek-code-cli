@@ -19,6 +19,7 @@ import { handleRunBackgroundTool, handleJobOutputTool, handleListJobsTool, handl
 import { handleSearchFilesTool } from "./search-files-handler";
 import { handleGetFileInfoTool } from "./get-file-info-handler";
 import { handleHandleReadTool } from "./handle-read-handler";
+import { handleRetrieveToolResultTool } from "./retrieve-tool-result-handler";
 
 export type CreateOpenAIClient = (overrideModel?: string) => {
   client: OpenAI | null;
@@ -102,7 +103,7 @@ export class ToolExecutor {
     "read", "glob", "grep", "directory_tree", "search_files",
     "get_file_info", "web_fetch", "WebSearch", "SkillLoad",
     "list_jobs", "job_output",
-    "handle_read",
+    "handle_read", "retrieve_tool_result",
   ]);
 
   /** 借鉴 Reasonix: 并行最大分块数。可通过 REASONIX_PARALLEL_MAX 环境变量覆写。 */
@@ -157,7 +158,7 @@ export class ToolExecutor {
               : { ok: false, name: call.function.name, error: String(s.reason) };
           executions.push({
             toolCallId: call.id,
-            content: this.formatToolResult(result),
+            content: this.formatToolResult(result, call.id),
             result,
           });
         }
@@ -166,7 +167,7 @@ export class ToolExecutor {
         const result = await this.executeToolCall(sessionId, call, hooks);
         executions.push({
           toolCallId: call.id,
-          content: this.formatToolResult(result),
+          content: this.formatToolResult(result, call.id),
           result,
         });
       }
@@ -200,6 +201,7 @@ export class ToolExecutor {
     this.toolHandlers.set("get_file_info", handleGetFileInfoTool);
     this.toolHandlers.set("stop_job", handleStopJobTool);
     this.toolHandlers.set("handle_read", handleHandleReadTool);
+    this.toolHandlers.set("retrieve_tool_result", handleRetrieveToolResultTool);
   }
 
   private parseToolCall(toolCall: unknown): ToolCall | null {
@@ -317,11 +319,15 @@ export class ToolExecutor {
     };
   }
 
-  private formatToolResult(result: ToolExecutionResult): string {
+  private formatToolResult(result: ToolExecutionResult, toolCallId?: string): string {
     const payload: Record<string, unknown> = {
       ok: result.ok,
       name: result.name
     };
+
+    if (toolCallId) {
+      payload.tool_call_id = toolCallId;
+    }
 
     if (typeof result.output !== "undefined") {
       payload.output = result.output;
@@ -332,7 +338,12 @@ export class ToolExecutor {
     }
 
     if (result.metadata && Object.keys(result.metadata).length > 0) {
-      payload.metadata = result.metadata;
+      payload.metadata = { ...result.metadata };
+      if (toolCallId && !(payload.metadata as Record<string, unknown>).tool_call_id) {
+        (payload.metadata as Record<string, unknown>).tool_call_id = toolCallId;
+      }
+    } else if (toolCallId) {
+      payload.metadata = { tool_call_id: toolCallId };
     }
 
     if (result.awaitUserResponse === true) {

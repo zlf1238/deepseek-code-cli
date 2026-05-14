@@ -1048,6 +1048,54 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     }
   });
 
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "retrieve_tool_result",
+      description:
+        "按引用检索之前溢出的工具输出。接受 tool_call_id、SHA 前缀或 handle id。" +
+        "支持模式: summary（默认）、head、tail、lines（行范围）、query（子串搜索）。" +
+        "无 ref 参数时列出所有可用溢出输出。",
+      parameters: {
+        type: "object",
+        properties: {
+          ref: {
+            type: "string",
+            description: "Tool call id、SHA 前缀（sha:abc123）、handle id。省略时列出所有可用溢出输出。"
+          },
+          mode: {
+            type: "string",
+            enum: ["summary", "head", "tail", "lines", "query"],
+            description: "检索模式。默认为 summary。"
+          },
+          lines: {
+            type: "string",
+            description: "当 mode=lines 时指定行范围，如 '100-200' 或 '100-'。当 mode=head/tail 时可指定数字行数。"
+          },
+          query: {
+            type: "string",
+            description: "当 mode=query 时的搜索子串（不区分大小写）。"
+          },
+          context: {
+            type: "number",
+            description: "当 mode=query 时每个匹配前后的上下文行数（默认 1，最大 5）。"
+          },
+          max_matches: {
+            type: "number",
+            description: "当 mode=query 时的最大匹配数（默认 20，最大 100）。"
+          },
+          max_bytes: {
+            type: "number",
+            description: "当 mode=summary 时的最大输出字节数（默认 8192，最大 131072）。"
+          }
+        },
+        required: [],
+        additionalProperties: false
+      }
+    }
+  });
+
   return tools;
 }
 

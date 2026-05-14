@@ -13,10 +13,51 @@ import { getCompactPrompt, getSystemPrompt, getTools } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 import { StormBreaker } from "./repair/storm";
 import { scavengeToolCalls } from "./repair/scavenge";
-import { restoreSnippetsFromHistory } from "./tools/state";
+import { restoreSnippetsFromHistory, spillToolOutput } from "./tools/state";
 
 const MAX_SESSION_ENTRIES = 50;
 const COMPACT_PROMPT_TOKEN_RATIO = 0.8;
+
+/** 借鉴 DeepSeek-TUI: 低于此 token 数不自动压缩，保护 prefix cache 不被破坏。 */
+const MIN_AUTO_COMPACTION_TOKENS = 500_000;
+
+function buildReFetchHint(
+  toolName: string | null,
+  snippetId: string | number | boolean | undefined,
+  handleMetadata: Record<string, unknown> | null,
+): string {
+  if (typeof snippetId === "string") {
+    return `use handle_read(snippet_id="${snippetId}", lines="X-Y") to fetch arbitrary ranges`;
+  }
+  if (handleMetadata) {
+    const h = handleMetadata.handle as Record<string, unknown> | undefined;
+    const hid = h?.id;
+    if (typeof hid === "string") {
+      return `use retrieve_tool_result(ref="${hid}", mode="lines", lines="X-Y") or mode="query" to fetch the full output`;
+    }
+  }
+  switch (toolName) {
+    case "bash":
+      return "re-run the command with head/tail piping, or use retrieve_tool_result to fetch the full output";
+    case "grep":
+      return "use grep with a narrower pattern or context=0, or retrieve_tool_result to fetch full matches";
+    case "glob":
+      return "use glob with a narrower pattern, or retrieve_tool_result to fetch the full file list";
+    case "directory_tree":
+      return "use directory_tree with a smaller maxDepth to narrow scope";
+    case "read":
+      return "use read_file with offset/limit to re-fetch, or handle_read for cached slices";
+    default:
+      return "use read_file to re-fetch if needed, or retrieve_tool_result for spilled outputs";
+  }
+}
+
+  /** 从 toolFunction 中提取工具名称。 */
+function extractToolName(toolFunction: unknown | null): string | null {
+    if (!toolFunction || typeof toolFunction !== "object") return null;
+    const name = (toolFunction as { name?: unknown }).name;
+    return typeof name === "string" ? name : null;
+  }
 
 export function getCompactPromptTokenThreshold(model: string): number {
   return Math.round(getContextWindowCapacity(model) * COMPACT_PROMPT_TOKEN_RATIO);
@@ -981,7 +1022,8 @@ The candidate skills are as follows:\n\n`;
           }));
         }
 
-        if (session.activeTokens > compactPromptTokenThreshold) {
+        if (session.activeTokens > compactPromptTokenThreshold
+            && session.activeTokens >= MIN_AUTO_COMPACTION_TOKENS) {
           const beforeTokens = session.activeTokens;
           const message = this.buildAssistantMessage(
             sessionId,
@@ -1770,7 +1812,7 @@ The candidate skills are as follows:\n\n`;
     hideResult?: boolean
   ): SessionMessage {
     const now = new Date().toISOString();
-    const shrunkContent = this.shrinkToolResult(content);
+    const shrunkContent = this.shrinkToolResult(content, toolFunction);
     const paramsMd = this.buildToolParamsSnippet(toolFunction);
     const resultMd = this.buildToolResultSnippet(shrunkContent);
     const isInvisibleExecution = this.isInvisibleExecution(shrunkContent);
@@ -1793,15 +1835,20 @@ The candidate skills are as follows:\n\n`;
     };
   }
 
-  /** 借鉴 Reasonix Pillar-3：单次 tool result 超过此字符数时截断。
-   *  后续轮次如需完整内容，模型可主动 read_file 重读——
-   *  一次重读远便宜于每轮拖拽 12KB。 */
+
+
+/** 按工具类型生成正确的重新获取提示语。
+ *  借鉴 DeepSeek-TUI: 对不同工具给出可操作的后续步骤。 */
+  /** 借鉴 Reasonix Pillar-3 + DeepSeek-TUI: 单次 tool result 超过此字符数时截断。
+   *  大输出溢出到进程内存，生成 handle 引用使模型可按需 retrieve_tool_result 查询。 */
   private static readonly MAX_TOOL_RESULT_CHARS = 6000;
 
-  private shrinkToolResult(content: string): string {
+  private shrinkToolResult(content: string, toolFunction: unknown | null = null): string {
     if (content.length <= SessionManager.MAX_TOOL_RESULT_CHARS) return content;
 
-    // 尝试解析为 JSON: 仅截断 output 字段，保留结构
+    const toolName = extractToolName(toolFunction);
+
+    // 尝试解析为 JSON: 仅截断 output 字段，保留结构，生成 handle 引用
     try {
       const parsed = JSON.parse(content) as Record<string, unknown>;
       if (typeof parsed.output === "string" && parsed.output.length > SessionManager.MAX_TOOL_RESULT_CHARS) {
@@ -1810,20 +1857,41 @@ The candidate skills are as follows:\n\n`;
         const head = out.slice(0, half);
         const tail = out.slice(-half);
         const skipped = out.length - half * 2;
-        // 如果存在 snippet_id，引导模型用 handle_read 而非 read_file
-        const meta = parsed.metadata as Record<string, unknown> | undefined;
+
+        // 溢出存储到进程内存，生成 handle 引用
+        const meta = (parsed.metadata as Record<string, unknown>) ?? {};
+        const tcId = typeof meta?.tool_call_id === "string" ? meta.tool_call_id as string
+          : (typeof parsed.tool_call_id === "string" ? parsed.tool_call_id as string : undefined);
+        let handleMetadata: Record<string, unknown> | null = null;
+        if (tcId && this.activeSessionId) {
+          const handle = spillToolOutput(this.activeSessionId, tcId, toolName ?? "unknown", out);
+          handleMetadata = {
+            handle: {
+              id: handle.id,
+              tool_name: handle.toolName,
+              length: handle.length,
+              sha256: handle.sha256,
+            },
+          };
+        }
+
+        // 按工具类型生成正确的 reFetchHint
         const snippetId = meta?.snippet
           ? (meta.snippet as Record<string, unknown>).id
           : undefined;
-        const reFetchHint =
-          typeof snippetId === "string"
-            ? `use handle_read(snippet_id="${snippetId}", lines="X-Y") to fetch arbitrary ranges`
-            : "use read_file to re-fetch if needed";
+        const reFetchHint = buildReFetchHint(toolName, typeof snippetId === "string" ? snippetId : undefined, handleMetadata);
+
         parsed.output = [
           head,
           `\n… (truncated ${skipped} chars in output, ${reFetchHint})\n`,
           tail,
         ].join("");
+
+        // 合并 handle metadata
+        if (handleMetadata) {
+          parsed.metadata = { ...meta, ...handleMetadata };
+        }
+
         return JSON.stringify(parsed, null, 2);
       }
     } catch {
@@ -1835,9 +1903,10 @@ The candidate skills are as follows:\n\n`;
     const head = content.slice(0, half);
     const tail = content.slice(-half);
     const skipped = content.length - half * 2;
+    const reFetchHint = buildReFetchHint(toolName, undefined, null);
     return [
       head,
-      `\n… (truncated ${skipped} chars, use read_file to re-fetch if needed)\n`,
+      `\n… (truncated ${skipped} chars, ${reFetchHint})\n`,
       tail,
     ].join("");
   }
