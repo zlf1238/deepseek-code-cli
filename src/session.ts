@@ -1943,13 +1943,13 @@ The candidate skills are as follows:\n\n`;
       case "edit":
         return `正在修改文件  ${firstValue(["file_path"]) || ""}`;
       case "bash":
-        return `正在执行命令  ${firstValue(["command", "description"]) || ""}`;
+        return `正在执行命令  ${(firstValue(["description", "command"]) || "").slice(0, 80)}`;
       case "glob":
-        return `正在搜索文件  ${firstValue(["pattern"]) || ""}`;
+        return `正在搜索文件  ${(firstValue(["pattern"]) || "").slice(0, 60)}`;
       case "grep":
-        return `正在搜索内容  ${firstValue(["pattern"]) || ""}`;
+        return `正在搜索内容  ${(firstValue(["pattern"]) || "").slice(0, 60)}`;
       case "WebSearch":
-        return `正在搜索网络  ${firstValue(["query"]) || ""}`;
+        return `正在搜索网络  ${(firstValue(["query"]) || "").slice(0, 60)}`;
       case "AskUserQuestion":
         return `正在向用户提问`;
       default:
