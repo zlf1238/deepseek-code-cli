@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { promises as fsPromises } from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
@@ -742,7 +743,7 @@ The candidate skills are as follows:\n\n`;
     // in the system prompt and calling SkillLoad when needed.
     const sessionId = crypto.randomUUID();
     const now = new Date().toISOString();
-    const index = this.loadSessionsIndex();
+    const index = await this.loadSessionsIndexAsync();
     const entry: SessionEntry = {
       id: sessionId,
       summary: userPrompt.text ? userPrompt.text.slice(0, 100) : "[Image Prompt]",
@@ -774,8 +775,8 @@ The candidate skills are as follows:\n\n`;
     const keptIds = new Set(keptEntries.map((item) => item.id));
     const droppedEntries = sortedEntries.filter((item) => !keptIds.has(item.id));
     index.entries = keptEntries;
-    this.saveSessionsIndex(index);
-    this.removeSessionMessages(droppedEntries.map((item) => item.id));
+    await this.saveSessionsIndexAsync(index);
+    await this.removeSessionMessagesAsync(droppedEntries.map((item) => item.id));
 
     // 提前获取主模型，用于选择对应模型优化的系统提示词
     const primaryModel = this.createOpenAIClient().model;
@@ -789,10 +790,10 @@ The candidate skills are as follows:\n\n`;
     }
 
     const systemMessage = this.buildSystemMessage(sessionId, systemPrompt);
-    this.appendSessionMessage(sessionId, systemMessage);
+    await this.appendSessionMessageAsync(sessionId, systemMessage);
 
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
-    this.appendSessionMessage(sessionId, userMessage);
+    await this.appendSessionMessageAsync(sessionId, userMessage);
 
     // Skills are now loaded on-demand via the SkillLoad tool (see tools/executor.ts).
     // The skills index is already embedded in the system prompt via getSkillsIndex().
@@ -806,7 +807,7 @@ The candidate skills are as follows:\n\n`;
     const signal = controller?.signal;
     this.throwIfAborted(signal);
     const now = new Date().toISOString();
-    const updated = this.updateSessionEntry(sessionId, (entry) => ({
+    const updated = await this.updateSessionEntryAsync(sessionId, (entry) => ({
       ...entry,
       status: "pending",
       failReason: null,
@@ -818,13 +819,13 @@ The candidate skills are as follows:\n\n`;
       return;
     }
 
-    this.closePendingToolCalls(sessionId, "Previous tool call did not complete.");
+    await this.closePendingToolCallsAsync(sessionId, "Previous tool call did not complete.");
 
     // Skill matching is now handled by the model reading Available Skills index
     // in the system prompt and calling SkillLoad when needed.
 
     const userMessage = this.buildUserMessage(sessionId, userPrompt);
-    this.appendSessionMessage(sessionId, userMessage);
+    await this.appendSessionMessageAsync(sessionId, userMessage);
 
     this.activeSessionId = sessionId;
     await this.activateSession(sessionId, controller);
@@ -839,7 +840,7 @@ The candidate skills are as follows:\n\n`;
     const now = new Date().toISOString();
 
     if (!primary.client) {
-      this.updateSessionEntry(sessionId, (entry) => ({
+      await this.updateSessionEntryAsync(sessionId, (entry) => ({
         ...entry,
         status: "failed",
         failReason: "OpenAI API key not found",
@@ -855,7 +856,7 @@ The candidate skills are as follows:\n\n`;
 
     const sessionController = controller ?? new AbortController();
     if (sessionController.signal.aborted) {
-      this.updateSessionEntry(sessionId, (entry) => ({
+      await this.updateSessionEntryAsync(sessionId, (entry) => ({
         ...entry,
         status: "interrupted",
         failReason: "interrupted",
@@ -865,14 +866,14 @@ The candidate skills are as follows:\n\n`;
       return;
     }
 
-    this.updateSessionEntry(sessionId, (entry) => ({
+    await this.updateSessionEntryAsync(sessionId, (entry) => ({
       ...entry,
       status: "processing",
       updateTime: now
     }));
 
     this.sessionControllers.set(sessionId, sessionController);
-    this.closePendingToolCalls(sessionId, "Previous tool call did not complete.");
+    await this.closePendingToolCallsAsync(sessionId, "Previous tool call did not complete.");
 
     try {
       const maxIterations = 80000;  // 约 1000 元成本上限
@@ -1472,6 +1473,12 @@ The candidate skills are as follows:\n\n`;
     return projectDir;
   }
 
+  private async ensureProjectDirAsync(): Promise<string> {
+    const { projectDir } = this.getProjectStorage();
+    await fsPromises.mkdir(projectDir, { recursive: true });
+    return projectDir;
+  }
+
   private loadSessionsIndex(): SessionsIndex {
     const { sessionsIndexPath } = this.getProjectStorage();
     this.ensureProjectDir();
@@ -1482,6 +1489,32 @@ The candidate skills are as follows:\n\n`;
 
     try {
       const raw = fs.readFileSync(sessionsIndexPath, "utf8");
+      const parsed = JSON.parse(raw) as SessionsIndex;
+      const entries = Array.isArray(parsed.entries)
+        ? parsed.entries.map((entry) => this.normalizeSessionEntry(entry))
+        : [];
+      return {
+        version: 1,
+        entries,
+        originalPath: parsed.originalPath || this.projectRoot
+      };
+    } catch {
+      return { version: 1, entries: [], originalPath: this.projectRoot };
+    }
+  }
+
+  private async loadSessionsIndexAsync(): Promise<SessionsIndex> {
+    const { sessionsIndexPath } = this.getProjectStorage();
+    await this.ensureProjectDirAsync();
+
+    try {
+      await fsPromises.access(sessionsIndexPath);
+    } catch {
+      return { version: 1, entries: [], originalPath: this.projectRoot };
+    }
+
+    try {
+      const raw = await fsPromises.readFile(sessionsIndexPath, "utf8");
       const parsed = JSON.parse(raw) as SessionsIndex;
       const entries = Array.isArray(parsed.entries)
         ? parsed.entries.map((entry) => this.normalizeSessionEntry(entry))
@@ -1510,6 +1543,20 @@ The candidate skills are as follows:\n\n`;
     fs.writeFileSync(sessionsIndexPath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
+  private async saveSessionsIndexAsync(index: SessionsIndex): Promise<void> {
+    const { sessionsIndexPath } = this.getProjectStorage();
+    await this.ensureProjectDirAsync();
+    const normalized = {
+      version: 1,
+      entries: index.entries.map((entry) => ({
+        ...entry,
+        processes: this.serializeProcesses(entry.processes)
+      })),
+      originalPath: this.projectRoot
+    };
+    await fsPromises.writeFile(sessionsIndexPath, JSON.stringify(normalized, null, 2), "utf8");
+  }
+
   private getSessionMessagesPath(sessionId: string): string {
     const { projectDir } = this.getProjectStorage();
     return path.join(projectDir, `${sessionId}.jsonl`);
@@ -1522,6 +1569,17 @@ The candidate skills are as follows:\n\n`;
         if (fs.existsSync(messagePath)) {
           fs.unlinkSync(messagePath);
         }
+      } catch {
+        // ignore delete failures
+      }
+    }
+  }
+
+  private async removeSessionMessagesAsync(sessionIds: string[]): Promise<void> {
+    for (const sessionId of sessionIds) {
+      const messagePath = this.getSessionMessagesPath(sessionId);
+      try {
+        await fsPromises.unlink(messagePath);
       } catch {
         // ignore delete failures
       }
@@ -1551,11 +1609,24 @@ The candidate skills are as follows:\n\n`;
     fs.appendFileSync(messagePath, `${JSON.stringify(message)}\n`, "utf8");
   }
 
+  private async appendSessionMessageAsync(sessionId: string, message: SessionMessage): Promise<void> {
+    await this.ensureProjectDirAsync();
+    const messagePath = this.getSessionMessagesPath(sessionId);
+    await fsPromises.appendFile(messagePath, `${JSON.stringify(message)}\n`, "utf8");
+  }
+
   private saveSessionMessages(sessionId: string, messages: SessionMessage[]): void {
     this.ensureProjectDir();
     const messagePath = this.getSessionMessagesPath(sessionId);
     const payload = messages.map((message) => JSON.stringify(message)).join("\n");
     fs.writeFileSync(messagePath, payload ? `${payload}\n` : "", "utf8");
+  }
+
+  private async saveSessionMessagesAsync(sessionId: string, messages: SessionMessage[]): Promise<void> {
+    await this.ensureProjectDirAsync();
+    const messagePath = this.getSessionMessagesPath(sessionId);
+    const payload = messages.map((message) => JSON.stringify(message)).join("\n");
+    await fsPromises.writeFile(messagePath, payload ? `${payload}\n` : "", "utf8");
   }
 
   private updateSessionEntry(
@@ -1571,6 +1642,23 @@ The candidate skills are as follows:\n\n`;
     const updated = updater({ ...index.entries[entryIndex] });
     index.entries[entryIndex] = updated;
     this.saveSessionsIndex(index);
+    this.onSessionEntryUpdated?.(updated);
+    return updated;
+  }
+
+  private async updateSessionEntryAsync(
+      sessionId: string,
+      updater: (entry: SessionEntry) => SessionEntry
+  ): Promise<SessionEntry | null> {
+    const index = await this.loadSessionsIndexAsync();
+    const entryIndex = index.entries.findIndex((entry) => entry.id === sessionId);
+    if (entryIndex === -1) {
+      return null;
+    }
+
+    const updated = updater({ ...index.entries[entryIndex] });
+    index.entries[entryIndex] = updated;
+    await this.saveSessionsIndexAsync(index);
     this.onSessionEntryUpdated?.(updated);
     return updated;
   }
@@ -2204,6 +2292,62 @@ The candidate skills are as follows:\n\n`;
 
     if (changed) {
       this.saveSessionMessages(sessionId, messages);
+    }
+  }
+
+  private async closePendingToolCallsAsync(sessionId: string, reason: string): Promise<void> {
+    const messages = this.listSessionMessages(sessionId);
+    let changed = false;
+
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
+      if (message.role !== "assistant") {
+        continue;
+      }
+
+      const messageParams = message.messageParams as { tool_calls?: unknown[] } | null;
+      const toolCalls = messageParams?.tool_calls;
+      if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+        continue;
+      }
+
+      const expectedToolCallIds = this.getExpectedToolCallIds(toolCalls);
+      if (expectedToolCallIds.length === 0) {
+        continue;
+      }
+
+      let cursor = index + 1;
+      const respondedToolCallIds = new Set<string>();
+      while (cursor < messages.length && messages[cursor].role === "tool") {
+        const toolCallId = (messages[cursor].messageParams as { tool_call_id?: unknown } | null)?.tool_call_id;
+        if (typeof toolCallId === "string" && toolCallId) {
+          respondedToolCallIds.add(toolCallId);
+        }
+        cursor += 1;
+      }
+
+      const missingToolCallIds = expectedToolCallIds.filter((toolCallId) => !respondedToolCallIds.has(toolCallId));
+      if (missingToolCallIds.length === 0) {
+        continue;
+      }
+
+      const toolMessages = missingToolCallIds.map((toolCallId) => {
+        const toolFunction = this.findToolFunction(toolCalls, toolCallId);
+        return this.buildToolMessage(
+          sessionId,
+          toolCallId,
+          this.buildInterruptedToolResult(toolFunction, reason),
+          toolFunction
+        );
+      });
+
+      messages.splice(cursor, 0, ...toolMessages);
+      changed = true;
+      index = cursor + toolMessages.length - 1;
+    }
+
+    if (changed) {
+      await this.saveSessionMessagesAsync(sessionId, messages);
     }
   }
 

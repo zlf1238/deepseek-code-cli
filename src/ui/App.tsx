@@ -320,6 +320,10 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       setBusy(true);
       setErrorLine(null);
       setRunningProcesses(null);
+
+      // 让出事件循环，确保 Ink 完成重渲染并启动 spinner 动画后再执行后续同步 I/O
+      await new Promise(resolve => setTimeout(resolve, 0));
+
       try {
         await sessionManager.handleUserPrompt(prompt);
         // Append a completion summary with elapsed time, token usage, and cost
