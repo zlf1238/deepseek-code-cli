@@ -111,6 +111,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const handlePromptRef = useRef<(submission: PromptSubmission) => void>(() => {});
   const isSubmittingRef = useRef(false);
   const promptStartTimeRef = useRef<number>(0);
+  const prevBusyRef = useRef(false);
 
   // Model switching
   const initialSettings = useMemo(() => resolveCurrentSettings(), []);
@@ -443,6 +444,25 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const loadingText = busy
     ? buildLoadingText({ progress: streamProgress, processes: runningProcesses, now: Date.now() })
     : null;
+
+  // 终端标题栏 & 响铃通知
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current;
+    prevBusyRef.current = busy;
+
+    // 响铃通知：模型响应完成时 (busy: true → false)
+    if (wasBusy && !busy) {
+      process.stdout.write("\x07");
+    }
+
+    // 终端标题栏：实时显示思考状态，翻看历史时也能看到
+    if (busy) {
+      const titleStatus = loadingText ?? "Thinking...";
+      process.stdout.write(`\x1b]0;⏳ ${titleStatus} — DeepSeek Code\x07`);
+    } else {
+      process.stdout.write("\x1b]0;DeepSeek Code\x07");
+    }
+  }, [busy, loadingText]);
 
   // Dynamic settings: re-resolve when activeModel changes (model persisting to disk
   // means resolveCurrentSettings picks up the new model + its per-model overrides)
