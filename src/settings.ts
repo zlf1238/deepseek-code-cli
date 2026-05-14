@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { defaultsToThinkingMode } from "./model-capabilities";
+import { defaultsToThinkingMode, DEEPSEEK_V4_PRO, DEEPSEEK_V4_FLASH } from "./model-capabilities";
 
 export type DeepcodingEnv = {
   MODEL?: string;
@@ -45,9 +45,16 @@ export type RTKSettings = {
   enabled?: boolean;
   /** RTK 二进制路径（默认 "rtk"） */
   binaryPath?: string;
+  /** 跳过 RTK 包装的命令前缀列表（追加到内置默认列表之上） */
+  exclude?: string[];
 };
 
+/** 模型使用模式：pro = 仅用 Pro，flash = 仅用 Flash，auto = 双向自动切换。 */
+export type ModelMode = "pro" | "flash" | "auto";
+
 export type DeepcodingSettings = {
+  /** 模型模式，优先级高于 env.MODEL + autoSwitch 组合配置。 */
+  mode?: ModelMode;
   env?: DeepcodingEnv;
   models?: Record<string, ModelOverride>;
   thinkingEnabled?: boolean;
@@ -71,6 +78,7 @@ export type ResolvedDeepcodingSettings = {
   apiKey?: string;
   baseURL: string;
   model: string;
+  mode: ModelMode;
   thinkingEnabled: boolean;
   reasoningEffort: ReasoningEffort;
   notify?: string;
@@ -100,6 +108,55 @@ function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined
   const cacheHitRate = (typeof raw?.cacheHitRate === "number" && raw.cacheHitRate >= 0 && raw.cacheHitRate <= 1)
     ? raw.cacheHitRate : 0.5;
   return { enabled, maxPaybackRounds, estimatedOutputPerRound, estimatedInputPerRound, cacheHitRate };
+}
+
+/**
+ * 从 settings 中解析 mode 字段。
+ * - 未设置或无效值 → "auto"（保持现有行为）
+ */
+function resolveMode(settings: DeepcodingSettings | null | undefined): ModelMode {
+  const mode = settings?.mode;
+  if (mode === "pro" || mode === "flash") return mode;
+  return "auto";
+}
+
+/**
+ * 根据 mode 覆写 ResolvedDeepcodingSettings 中的 model 和 autoSwitch。
+ *
+ * ┌──────────┬────────────────┬─────────────────────────────────┐
+ * │ mode     │ 实际 model     │ autoSwitch.enabled               │
+ * ├──────────┼────────────────┼─────────────────────────────────┤
+ * │ "pro"    │ deepseek-v4-pro│ false（永不切到 Flash）          │
+ * │ "flash"  │ deepseek-v4-flash│ false（永不用 Pro）            │
+ * │ "auto"   │ 保持解析结果    │ 保持原有值（默认 true）          │
+ * │ "auto" + │ 保持 Flash      │ false（用户选了 Flash 就不切）  │
+ * │   MODEL=flash │           │                                 │
+ * └──────────┴────────────────┴─────────────────────────────────┘
+ */
+function applyModeOverrides(resolved: ResolvedDeepcodingSettings): ResolvedDeepcodingSettings {
+  const { model, autoSwitch, mode } = resolved;
+
+  switch (mode) {
+    case "pro":
+      return {
+        ...resolved,
+        model: DEEPSEEK_V4_PRO,
+        autoSwitch: { ...autoSwitch, enabled: false },
+      };
+    case "flash":
+      return {
+        ...resolved,
+        model: DEEPSEEK_V4_FLASH,
+        autoSwitch: { ...autoSwitch, enabled: false },
+      };
+    case "auto":
+    default:
+      // 用户显式将 env.MODEL 设为 Flash 时，保持不切换回 Pro
+      if (model === DEEPSEEK_V4_FLASH) {
+        return { ...resolved, autoSwitch: { ...autoSwitch, enabled: false } };
+      }
+      return resolved;
+  }
 }
 
 function resolveThinkingEnabled(
@@ -173,17 +230,18 @@ export function resolveSettings(
     inputCacheMissPricePerMillion: resolveCachePrice("inputCacheMissPricePerMillion"),
   };
 
-  return {
+  return applyModeOverrides({
     apiKey: resolvedApiKey,
     baseURL: resolvedBaseURL,
     model,
+    mode: resolveMode(settings),
     thinkingEnabled: resolveThinkingEnabled(settings, model),
     reasoningEffort: resolveReasoningEffort(settings?.reasoningEffort),
     notify: notify || undefined,
     webSearchTool: webSearchTool || undefined,
     pricing,
     autoSwitch: resolveAutoSwitchConfig(settings)
-  };
+  });
 }
 
 /** 返回 settings 中声明的所有模型名称（env.MODEL + models keys），去重后排序。 */
@@ -244,6 +302,23 @@ export function updateThinkingConfigInSettings(
       settings.reasoningEffort = reasoningEffort;
     }
 
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 将 mode 持久化到 settings.json。
+ * 成功返回 true，失败返回 false。
+ */
+export function updateModeInSettings(mode: ModelMode): boolean {
+  try {
+    const settingsPath = path.join(os.homedir(), ".deepseek-code", "settings.json");
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as DeepcodingSettings;
+    settings.mode = mode;
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
     return true;
   } catch {

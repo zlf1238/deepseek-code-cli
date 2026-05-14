@@ -88,7 +88,7 @@ export async function handleHandleReadTool(
   }
 
   if (!result.ok) {
-    return { ok: false, name: "handle_read", error: result.error };
+    return { ok: false, name: "handle_read", error: "error" in result ? result.error : `File stale: ${result.filePath}` };
   }
 
   const formatted = formatWithLineNumbers(result.lines, result.fromLine);

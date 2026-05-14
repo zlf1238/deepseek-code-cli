@@ -29,9 +29,12 @@ export function scavengeToolCalls(
     if (calls.length >= maxCalls) break;
     const call = coerceToToolCall(candidate, allowedNames);
     if (call) {
-      call.id = `scavenged_${crypto.randomUUID().slice(0, 8)}`;
-      calls.push(call);
-      notes.push(`scavenged call: ${call.function.name}`);
+      const full: ToolCall = {
+        ...call,
+        id: `scavenged_${crypto.randomUUID().slice(0, 8)}`,
+      };
+      calls.push(full);
+      notes.push(`scavenged call: ${full.function.name}`);
     }
   }
 

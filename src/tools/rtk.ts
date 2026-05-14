@@ -19,7 +19,23 @@ import * as os from "os";
 export interface RTKConfig {
   enabled: boolean;
   binaryPath: string;
+  exclude: string[];
 }
+
+/** Default command prefixes that should skip RTK wrapping. */
+const DEFAULT_EXCLUDE_PREFIXES = [
+  "tsc",
+  "npm run",
+  "npx tsc",
+  "node ",
+  "esbuild",
+  "webpack",
+  "vite",
+  "jest",
+  "vitest",
+  "pytest",
+  "cargo",
+];
 
 /** Cache the availability check result for the lifetime of the process. */
 let availabilityCache: boolean | null = null;
@@ -31,6 +47,7 @@ let availabilityCache: boolean | null = null;
 export function loadRTKConfig(): RTKConfig {
   let enabled = process.env.RTK_ENABLED === "1";
   let binaryPath = process.env.RTK_BINARY || "rtk";
+  let exclude: string[] = [];
 
   // Try reading from settings.json
   try {
@@ -46,12 +63,15 @@ export function loadRTKConfig(): RTKConfig {
       if (typeof settings?.rtk?.binaryPath === "string" && settings.rtk.binaryPath.trim()) {
         binaryPath = settings.rtk.binaryPath.trim();
       }
+      if (Array.isArray(settings?.rtk?.exclude) && settings.rtk.exclude.every((s: unknown) => typeof s === "string")) {
+        exclude = settings.rtk.exclude;
+      }
     }
   } catch {
     // Ignore read errors — fall back to env vars
   }
 
-  return { enabled, binaryPath };
+  return { enabled, binaryPath, exclude };
 }
 
 /**
@@ -85,12 +105,26 @@ export function isRTKAvailable(config: RTKConfig): boolean {
 /**
  * Wrap a shell command string with `rtk` prefix if available.
  * Example: "git status" → "rtk git status"
+ * Commands whose trimmed prefix matches an entry in the exclude list are not wrapped.
  */
 export function wrapWithRTK(command: string, config: RTKConfig): string {
   if (!isRTKAvailable(config)) {
     return command;
   }
+  if (shouldExcludeFromRTK(command, config.exclude)) {
+    return command;
+  }
   return `${config.binaryPath} ${command}`;
+}
+
+/**
+ * Check if a command should skip RTK wrapping.
+ * Matches against DEFAULT_EXCLUDE_PREFIXES + user-configured exclude list.
+ */
+function shouldExcludeFromRTK(command: string, userExclude: string[]): boolean {
+  const trimmed = command.trimStart();
+  const allExcludes = [...DEFAULT_EXCLUDE_PREFIXES, ...userExclude];
+  return allExcludes.some((prefix) => trimmed.startsWith(prefix));
 }
 
 /**

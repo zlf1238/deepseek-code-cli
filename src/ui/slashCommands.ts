@@ -1,6 +1,6 @@
 import type { SkillInfo } from "../session";
 
-export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "new" | "resume" | "exit";
+export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoSwitch" | "new" | "resume" | "exit";
 
 export type SlashCommandItem = {
   kind: SlashCommandKind;
@@ -40,6 +40,12 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
     name: "thinking",
     label: "/thinking",
     description: "切换思考模式（开启/关闭）"
+  },
+  {
+    kind: "autoSwitch",
+    name: "autoSwitch",
+    label: "/autoSwitch",
+    description: "开启/关闭自动切换模型"
   },
   {
     kind: "exit",

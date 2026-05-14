@@ -81,7 +81,7 @@ export function WelcomeScreen({
             marginTop={compact ? 1 : 0}
           >
             {!compact ? <Text> </Text> : null}
-            <SettingRow label="model" value={settings.model} />
+            <SettingRow label="model" value={`${settings.model}${settings.mode !== "auto" ? ` (${settings.mode})` : ""}`} />
             <SettingRow label="thinking enabled" value={String(settings.thinkingEnabled)} />
             <SettingRow label="reasoning effort" value={settings.reasoningEffort} />
             <SettingRow label="context window" value={formatTokenCount(contextWindowCapacity)} />

@@ -18,7 +18,7 @@ import {
   type SkillInfo,
   type UserPromptContent
 } from "../session";
-import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ReasoningEffort, type ResolvedAutoSwitchConfig } from "../settings";
+import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateModeInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ModelMode, type ReasoningEffort, type ResolvedAutoSwitchConfig } from "../settings";
 import type { PricingSnapshot } from "../model-capabilities";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
@@ -117,6 +117,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const [activeModel, setActiveModel] = useState<string>(initialSettings.model);
   const modelList = useMemo(() => getAvailableModelNames(readSettings()), []);
 
+  // Auto-switch mode
+  const [activeMode, setActiveMode] = useState<string>(initialSettings.mode);
+
   // Thinking mode state
   const [activeThinking, setActiveThinking] = useState<boolean>(initialSettings.thinkingEnabled);
   const [activeReasoningEffort, setActiveReasoningEffort] = useState<ReasoningEffort>(initialSettings.reasoningEffort);
@@ -197,6 +200,13 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     const ok = updateActiveModelInSettings(modelName);
     if (ok) {
       setActiveModel(modelName);
+    }
+  }, []);
+
+  const handleAutoSwitchChange = useCallback((newMode: string) => {
+    const ok = updateModeInSettings(newMode as ModelMode);
+    if (ok) {
+      setActiveMode(newMode);
     }
   }, []);
 
@@ -518,6 +528,8 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           activeThinking={activeThinking}
           activeReasoningEffort={activeReasoningEffort}
           onThinkingChange={(enabled, effort) => void handleThinkingChange(enabled, effort)}
+          activeMode={activeMode}
+          onAutoSwitchChange={(newMode) => void handleAutoSwitchChange(newMode)}
           promptHistory={promptHistory}
           busy={busy}
           loadingText={loadingText}
@@ -590,71 +602,106 @@ export function buildCompletionSummary(
 
   const parts: string[] = [`${statusIcon} ${session.status}`];
   parts.push(`耗时: ${elapsed}`);
-  parts.push(`token: ${formatTokenCount(roundTokens)}`);
 
-  // Cache hit rate
-  const cacheTotal = roundCacheHitTokens + roundCacheMissTokens;
-  if (cacheTotal > 0) {
-    const hitPct = Math.round((roundCacheHitTokens / cacheTotal) * 100);
-    parts.push(`缓存命中: ${hitPct}%`);
-  }
-
-  // Cost calculation with cache-aware pricing
-  const cacheHitPrice = pricing.inputCacheHitPricePerMillion > 0
-    ? pricing.inputCacheHitPricePerMillion
-    : pricing.inputPricePerMillion;
-  const cacheMissPrice = pricing.inputCacheMissPricePerMillion > 0
-    ? pricing.inputCacheMissPricePerMillion
-    : pricing.inputPricePerMillion;
-
-  let cost = 0;
-  // Cache-aware input cost
-  cost += (roundCacheHitTokens / 1_000_000) * cacheHitPrice;
-  cost += (roundCacheMissTokens / 1_000_000) * cacheMissPrice;
-  // Non-cache input tokens (if any) charged at inputPricePerMillion
-  const nonCachePromptTokens = Math.max(0, roundPromptTokens - cacheTotal);
-  cost += (nonCachePromptTokens / 1_000_000) * pricing.inputPricePerMillion;
-  // Output cost
-  cost += (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
-
-  if (cost > 0) {
-    parts.push(`费用: ¥${formatCost(cost)}`);
-  }
-
-  // Per-model cost breakdown — uses round increment (usageByModelDiff) to avoid
-  // double-counting history (Bug 1 fix), and per-model pricing to avoid rate
-  // mismatch when auto-switching between pro and flash (Bug 2 fix).
+  // ── 按模型拆分展示 token、缓存命中率、费用 ──
   if (usageByModelDiff && resolveModelPricing) {
     const modelNames = Object.keys(usageByModelDiff).sort();
-    if (modelNames.length > 1) {
-      const modelCosts: string[] = [];
-      for (const modelName of modelNames) {
-        const diff = usageByModelDiff[modelName];
-        const modelPrompt = typeof diff.prompt_tokens === "number" ? diff.prompt_tokens : 0;
-        const modelCompletion = typeof diff.completion_tokens === "number" ? diff.completion_tokens : 0;
-        const modelCacheHit = typeof diff.prompt_cache_hit_tokens === "number" ? diff.prompt_cache_hit_tokens : 0;
-        const modelCacheMiss = typeof diff.prompt_cache_miss_tokens === "number" ? diff.prompt_cache_miss_tokens : 0;
+    const modelDetailParts: string[] = [];
 
-        // Resolve per-model pricing (Bug 2 fix)
-        const mp = resolveModelPricing(modelName);
-        const mHitPrice = mp.inputCacheHitPricePerMillion > 0
-          ? mp.inputCacheHitPricePerMillion
-          : mp.inputPricePerMillion;
-        const mMissPrice = mp.inputCacheMissPricePerMillion > 0
-          ? mp.inputCacheMissPricePerMillion
-          : mp.inputPricePerMillion;
+    for (const modelName of modelNames) {
+      const diff = usageByModelDiff[modelName];
+      const modelPrompt = typeof diff.prompt_tokens === "number" ? diff.prompt_tokens : 0;
+      const modelCompletion = typeof diff.completion_tokens === "number" ? diff.completion_tokens : 0;
+      const modelCacheHit = typeof diff.prompt_cache_hit_tokens === "number" ? diff.prompt_cache_hit_tokens : 0;
+      const modelCacheMiss = typeof diff.prompt_cache_miss_tokens === "number" ? diff.prompt_cache_miss_tokens : 0;
+      const modelTokens = modelPrompt + modelCompletion;
 
-        const modelCost = (modelCacheHit / 1_000_000) * mHitPrice
-          + (modelCacheMiss / 1_000_000) * mMissPrice
-          + (Math.max(0, modelPrompt - modelCacheHit - modelCacheMiss) / 1_000_000) * mp.inputPricePerMillion
-          + (modelCompletion / 1_000_000) * mp.outputPricePerMillion;
-        if (modelCost > 0) {
-          modelCosts.push(`${modelName}=¥${formatCost(modelCost)}`);
-        }
+      // Per-model cache hit rate
+      const modelCacheTotal = modelCacheHit + modelCacheMiss;
+      const modelHitPct = modelCacheTotal > 0
+        ? Math.round((modelCacheHit / modelCacheTotal) * 100)
+        : undefined;
+
+      // Per-model pricing
+      const mp = resolveModelPricing(modelName);
+      const mHitPrice = mp.inputCacheHitPricePerMillion > 0
+        ? mp.inputCacheHitPricePerMillion
+        : mp.inputPricePerMillion;
+      const mMissPrice = mp.inputCacheMissPricePerMillion > 0
+        ? mp.inputCacheMissPricePerMillion
+        : mp.inputPricePerMillion;
+
+      const modelCost = (modelCacheHit / 1_000_000) * mHitPrice
+        + (modelCacheMiss / 1_000_000) * mMissPrice
+        + (Math.max(0, modelPrompt - modelCacheHit - modelCacheMiss) / 1_000_000) * mp.inputPricePerMillion
+        + (modelCompletion / 1_000_000) * mp.outputPricePerMillion;
+
+      const subParts: string[] = [`token=${formatTokenCount(modelTokens)}`];
+      if (modelHitPct !== undefined) {
+        subParts.push(`缓存命中=${modelHitPct}%`);
       }
-      if (modelCosts.length > 0) {
-        parts.push(`模型费用: ${modelCosts.join(" + ")}`);
+      if (modelCost > 0) {
+        subParts.push(`费用=¥${formatCost(modelCost)}`);
       }
+      modelDetailParts.push(`${modelName}: ${subParts.join(", ")}`);
+    }
+
+    if (modelNames.length === 1) {
+      // 单一模型：直接展示按模型明细，不再重复展示总数
+      parts.push(modelDetailParts[0]);
+    } else {
+      // 多模型：展示总体合计 + 每个模型的明细
+      const cacheTotal = roundCacheHitTokens + roundCacheMissTokens;
+      parts.push(`token: ${formatTokenCount(roundTokens)}`);
+      if (cacheTotal > 0) {
+        const hitPct = Math.round((roundCacheHitTokens / cacheTotal) * 100);
+        parts.push(`缓存命中: ${hitPct}%`);
+      }
+
+      // 总费用
+      const cacheHitPrice = pricing.inputCacheHitPricePerMillion > 0
+        ? pricing.inputCacheHitPricePerMillion
+        : pricing.inputPricePerMillion;
+      const cacheMissPrice = pricing.inputCacheMissPricePerMillion > 0
+        ? pricing.inputCacheMissPricePerMillion
+        : pricing.inputPricePerMillion;
+      let totalCost = 0;
+      totalCost += (roundCacheHitTokens / 1_000_000) * cacheHitPrice;
+      totalCost += (roundCacheMissTokens / 1_000_000) * cacheMissPrice;
+      totalCost += (Math.max(0, roundPromptTokens - cacheTotal) / 1_000_000) * pricing.inputPricePerMillion;
+      totalCost += (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
+      if (totalCost > 0) {
+        parts.push(`费用: ¥${formatCost(totalCost)}`);
+      }
+
+      parts.push(`模型明细: ${modelDetailParts.join(" + ")}`);
+    }
+  } else {
+    // 无 usageByModelDiff 时，回退到原有总体展示
+    parts.push(`token: ${formatTokenCount(roundTokens)}`);
+
+    const cacheTotal = roundCacheHitTokens + roundCacheMissTokens;
+    if (cacheTotal > 0) {
+      const hitPct = Math.round((roundCacheHitTokens / cacheTotal) * 100);
+      parts.push(`缓存命中: ${hitPct}%`);
+    }
+
+    const cacheHitPrice = pricing.inputCacheHitPricePerMillion > 0
+      ? pricing.inputCacheHitPricePerMillion
+      : pricing.inputPricePerMillion;
+    const cacheMissPrice = pricing.inputCacheMissPricePerMillion > 0
+      ? pricing.inputCacheMissPricePerMillion
+      : pricing.inputPricePerMillion;
+
+    let cost = 0;
+    cost += (roundCacheHitTokens / 1_000_000) * cacheHitPrice;
+    cost += (roundCacheMissTokens / 1_000_000) * cacheMissPrice;
+    const nonCachePromptTokens = Math.max(0, roundPromptTokens - cacheTotal);
+    cost += (nonCachePromptTokens / 1_000_000) * pricing.inputPricePerMillion;
+    cost += (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
+
+    if (cost > 0) {
+      parts.push(`费用: ¥${formatCost(cost)}`);
     }
   }
 
@@ -733,7 +780,10 @@ function formatTokenCount(tokens: number): string {
  * to charge each model its own rate (Bug 2 fix).
  */
 function resolveModelPricing(modelName: string): Required<PricingConfig> {
-  return resolveSettings(readSettings(), { model: modelName, baseURL: DEFAULT_BASE_URL }).pricing;
+  // 绕过 mode 覆写，确保获取到指定模型的正确费率
+  const raw = readSettings();
+  if (raw) { raw.mode = undefined; }
+  return resolveSettings(raw, { model: modelName, baseURL: DEFAULT_BASE_URL }).pricing;
 }
 
 export function readSettings(): DeepcodingSettings | null {
