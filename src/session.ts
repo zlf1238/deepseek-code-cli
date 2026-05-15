@@ -7,8 +7,7 @@ import matter from "gray-matter";
 import type { ChatCompletionMessageParam, ChatCompletionContentPart } from "openai/resources/chat/completions";
 import { launchNotifyScript } from "./notify";
 import { buildThinkingRequestOptions } from "./openai-thinking";
-import { getContextWindowCapacity, selectModelForIteration, selectModelByPrice, DEEPSEEK_V4_FLASH } from "./model-capabilities";
-import type { PricingSnapshot, SwitchContext } from "./model-capabilities";
+import { getContextWindowCapacity } from "./model-capabilities";
 import { getCompactPrompt, getSystemPrompt, getTools } from "./prompt";
 import { ToolExecutor, type CreateOpenAIClient } from "./tools/executor";
 import { StormBreaker } from "./repair/storm";
@@ -925,85 +924,12 @@ The candidate skills are as follows:\n\n`;
       let currentThinkingEnabled = primary.thinkingEnabled;
       let currentBaseURL = primary.baseURL;
       let currentReasoningEffort = primary.reasoningEffort;
-      let wasAutoSwitched = false;  // pro→flash 自动切换标记
-
-      // ── 双向切换状态追踪 ──
-      let roundsOnFlash = 0;           // Flash 连续运行轮数
-      let newUserMessage = true;       // 第一轮/用户新消息标记
-      const uniqueTools = new Set<string>();  // 本会话使用过的工具类型
-      let toolErrors = 0;             // 工具调用失败次数
-      let toolTotal = 0;              // 工具调用总次数
-
-      // 预获取两个模型的定价信息（用于价格感知切换）
-      const proPricing = primary.pricing;
-      const flashClientInfo = this.createOpenAIClient("deepseek-v4-flash");
-      const flashPricing = flashClientInfo.pricing;
-      const autoSwitch = primary.autoSwitch;
+      // Supervisor-Worker 架构：主循环固定 Pro，不做模型切换
+      // 代码修改通过 spawn_code_executor 委派给 Flash 子智能体（隔离上下文，不改缓存）
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.isInterrupted(sessionId)) {
           return;
-        }
-
-        // 获取价格感知切换所需的累积 token 数
-        // 同时包含历史 usage 和本轮已处理的 input tokens
-        const sessionEntry = this.getSession(sessionId);
-        // 历史累积 usage 已包含所有已完成轮次的 token，无需额外加上 activeTokens（否则会重复计数最近一轮）
-        const accumulatedTokens = sessionEntry
-          ? getTotalTokens(sessionEntry.usage)
-          : 0;
-
-        // 当定价信息可用时，使用价格感知算法选择模型
-        let selectedModel: string;
-        let switchReason: string;
-        if (proPricing && flashPricing && primaryModel === "deepseek-v4-pro") {
-          const switchCtx: SwitchContext = {
-            enabled: autoSwitch?.enabled ?? true,
-            proPricing,
-            flashPricing,
-            accumulatedTokens,
-            lastToolName,
-            maxPaybackRounds: autoSwitch?.maxPaybackRounds ?? 8,
-            estimatedOutputPerRound: autoSwitch?.estimatedOutputPerRound ?? 8000,
-            estimatedInputPerRound: autoSwitch?.estimatedInputPerRound ?? 500,
-            cacheHitRate: autoSwitch?.cacheHitRate ?? 0.5,
-            currentModel,
-            roundsOnFlash,
-            errorRate: toolTotal > 0 ? toolErrors / toolTotal : undefined,
-            uniqueToolCount: uniqueTools.size > 0 ? uniqueTools.size : undefined,
-            newUserMessage,
-          };
-          const result = selectModelByPrice(primaryModel, toolCalls !== null, switchCtx);
-          selectedModel = result.model;
-          switchReason = result.reason;
-        } else {
-          selectedModel = selectModelForIteration(primaryModel, toolCalls !== null);
-          switchReason = selectedModel === currentModel ? "keep" : "switch";
-        }
-
-        if (selectedModel !== currentModel) {
-          const next = this.createOpenAIClient(selectedModel);
-          if (next.client) {
-            currentClient = next.client;
-            currentModel = next.model;
-            // 自动切换到 Flash 时强制开启深度思考，确保编程质量
-            currentThinkingEnabled = selectedModel === "deepseek-v4-flash" ? true : next.thinkingEnabled;
-            currentBaseURL = next.baseURL ?? primary.baseURL;
-            currentReasoningEffort = next.reasoningEffort ?? primary.reasoningEffort;
-
-            // 模型切换是客户端行为，不注入 API 可见消息以免截断缓存前缀。
-            // 借鉴 Reasonix: 切换仅改变 client 变量，对 API 完全透明。
-            this.onAssistantMessage(
-              this.buildAssistantMessage(
-                sessionId,
-                `[模型切换] ${switchReason}`,
-                null
-              ),
-              false
-            );
-            wasAutoSwitched = true;
-          }
-          // 若 next client 为 null（如未配置 flash），保持当前模型
         }
 
         const session = this.getSession(sessionId);
@@ -1119,36 +1045,6 @@ The candidate skills are as follows:\n\n`;
           return;
         }
 
-        // P2: Flash 质量预检测——若 Flash 响应质量不足则升级为 Pro
-        if (wasAutoSwitched && currentModel === "deepseek-v4-flash") {
-          const isRefusal = typeof refusal === "string" && refusal.length > 0;
-          const isEmpty = content.trim().length === 0 && !toolCalls;
-          if (isRefusal || isEmpty) {
-            // 回退到 Pro，但不追加 Flash 的劣质响应
-            const proClient = this.createOpenAIClient(primaryModel);
-            if (proClient.client) {
-              currentClient = proClient.client;
-              currentModel = proClient.model;
-              currentThinkingEnabled = proClient.thinkingEnabled;
-              currentBaseURL = proClient.baseURL ?? primary.baseURL;
-              currentReasoningEffort = proClient.reasoningEffort ?? primary.reasoningEffort;
-              wasAutoSwitched = false;
-
-              // 模型回退是客户端行为，仅通知 UI。
-              this.onAssistantMessage(
-                this.buildAssistantMessage(
-                  sessionId,
-                  `[模型回退] Flash ${isRefusal ? "拒绝回答" : "返回空响应"}，已升级为 ${primaryModel} 进行重试。`,
-                  null
-                ),
-                false
-              );
-              toolCalls = null;  // 重置，以便 Pro 重新分析
-              continue;  // 使用 Pro 重试（不消耗迭代次数）
-            }
-          }
-        }
-
         const assistantMessage = this.buildAssistantMessage(sessionId, content, toolCalls, thinking);
         this.appendSessionMessage(sessionId, assistantMessage);
         this.onAssistantMessage(assistantMessage, true);
@@ -1156,25 +1052,9 @@ The candidate skills are as follows:\n\n`;
         let waitingForUser = false;
         if (toolCalls) {
           lastToolName = this.extractLastToolName(toolCalls);
-          // 收集工具复杂度信号：不重复工具类型 + 调用计数
-          for (const tc of toolCalls) {
-            const fn = (tc as Record<string, unknown> | null)?.function as Record<string, unknown> | null | undefined;
-            if (typeof fn?.name === "string" && fn.name) {
-              uniqueTools.add(fn.name);
-            }
-          }
-          toolTotal += toolCalls.length;
           const toolAppendResult = await this.appendToolMessages(sessionId, toolCalls);
           waitingForUser = toolAppendResult.waitingForUser;
         }
-
-        // 更新双向切换状态
-        if (currentModel === DEEPSEEK_V4_FLASH) {
-          roundsOnFlash++;
-        } else {
-          roundsOnFlash = 0;
-        }
-        newUserMessage = false;
 
         if (this.isInterrupted(sessionId)) {
           return;
@@ -1346,9 +1226,13 @@ The candidate skills are as follows:\n\n`;
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(): { webSearchEnabled: boolean } {
+  private getPromptToolOptions(): { webSearchEnabled: boolean; supervisorMode: boolean } {
+    const primary = this.createOpenAIClient();
+    const supervisorMode =
+      (primary.autoSwitch?.enabled ?? true) && primary.model === "deepseek-v4-pro";
     return {
-      webSearchEnabled: true
+      webSearchEnabled: true,
+      supervisorMode,
     };
   }
 

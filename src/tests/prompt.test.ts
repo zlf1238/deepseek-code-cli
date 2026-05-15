@@ -1,23 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "../prompt";
+import { getSystemPrompt, getTools } from "../prompt";
 
-test("getTools always includes all tools regardless of model", () => {
-  // 默认（无参数）
+test("getTools includes spawn_code_executor only when supervisorMode is true", () => {
+  // 默认（不含 supervisorMode）→ 不注册 spawn_code_executor
   const defaultNames = getTools().map((tool) => tool.function.name);
   assert.equal(defaultNames.includes("WebSearch"), true);
   assert.equal(defaultNames.includes("bash"), true);
   assert.equal(defaultNames.includes("AskUserQuestion"), true);
-  assert.equal(defaultNames.includes("spawn_code_executor"), true);
-  assert.equal(defaultNames.length, 23);
+  assert.equal(defaultNames.includes("spawn_code_executor"), false);
+  assert.equal(defaultNames.length, 22);
 
-  // Flash 模型也使用完整工具集
-  const flashNames = getTools({ webSearchEnabled: true }).map((tool) => tool.function.name);
-  assert.equal(flashNames.includes("WebSearch"), true);
-  assert.equal(flashNames.includes("bash"), true);
-  assert.equal(flashNames.includes("AskUserQuestion"), true);
-  assert.equal(flashNames.includes("spawn_code_executor"), true);
-  assert.equal(flashNames.length, 23);
+  // supervisorMode=true → 注册 spawn_code_executor
+  const supervisorNames = getTools({ supervisorMode: true }).map((tool) => tool.function.name);
+  assert.equal(supervisorNames.includes("spawn_code_executor"), true);
+  assert.equal(supervisorNames.length, 23);
+
+  // supervisorMode=false → 不注册
+  const noSupervisorNames = getTools({ supervisorMode: false }).map((tool) => tool.function.name);
+  assert.equal(noSupervisorNames.includes("spawn_code_executor"), false);
+  assert.equal(noSupervisorNames.length, 22);
 });
 
 test("getSystemPrompt always returns full prompt with all tool docs", () => {
@@ -32,12 +34,4 @@ test("getSystemPrompt always returns full prompt with all tool docs", () => {
   assert.equal(promptWithOptions.includes("交互式 CLI 工具"), true);
   assert.equal(promptWithOptions.includes("## WebSearch"), true);
   assert.equal(promptWithOptions.includes("## Bash"), true);
-});
-
-test("getFlashAutoSwitchMessage indicates full tools and thinking enabled", () => {
-  const msg = getFlashAutoSwitchMessage();
-  assert.equal(msg.includes("deepseek-v4-flash"), true);
-  // 消息中说明拥有全部工具和深度思考能力
-  assert.equal(msg.includes("全部工具"), true);
-  assert.equal(msg.includes("深度思考能力"), true);
 });
