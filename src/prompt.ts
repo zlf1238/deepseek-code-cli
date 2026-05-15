@@ -1151,6 +1151,10 @@ When the \`spawn_code_executor\` tool is available to you:
    - Cross-file changes → call spawn_code_executor for each file (may batch in parallel).
 3. **Write precise instructions.** The sub-agent has NO conversation context — it only sees the file content and your instruction. Specify exactly what to change and how.
 4. **Do NOT paste full file contents into the instruction.** The sub-agent will read the file itself.
+5. **Verify after delegation.** When the sub-agent returns:
+   - Cross-file changes or critical logic → read_file the modified file to verify correctness.
+   - Single-file straightforward changes → trust the sub-agent's success output and move on.
+   - If the sub-agent reports failure → read the file, diagnose, and either fix directly or re-delegate with a clearer instruction.
 
 When \`spawn_code_executor\` is NOT available, perform all edits directly as usual.`;
 
