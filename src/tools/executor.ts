@@ -20,6 +20,7 @@ import { handleSearchFilesTool } from "./search-files-handler";
 import { handleGetFileInfoTool } from "./get-file-info-handler";
 import { handleHandleReadTool } from "./handle-read-handler";
 import { handleRetrieveToolResultTool } from "./retrieve-tool-result-handler";
+import { handleCodeExecutorTool } from "./code-executor";
 
 export type CreateOpenAIClient = (overrideModel?: string) => {
   client: OpenAI | null;
@@ -104,6 +105,7 @@ export class ToolExecutor {
     "get_file_info", "web_fetch", "WebSearch", "SkillLoad",
     "list_jobs", "job_output",
     "handle_read", "retrieve_tool_result",
+    "spawn_code_executor",
   ]);
 
   /** 借鉴 Reasonix: 并行最大分块数。可通过 REASONIX_PARALLEL_MAX 环境变量覆写。 */
@@ -202,6 +204,7 @@ export class ToolExecutor {
     this.toolHandlers.set("stop_job", handleStopJobTool);
     this.toolHandlers.set("handle_read", handleHandleReadTool);
     this.toolHandlers.set("retrieve_tool_result", handleRetrieveToolResultTool);
+    this.toolHandlers.set("spawn_code_executor", handleCodeExecutorTool);
   }
 
   private parseToolCall(toolCall: unknown): ToolCall | null {

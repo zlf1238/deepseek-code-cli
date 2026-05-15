@@ -2,20 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getSystemPrompt, getTools, getFlashAutoSwitchMessage } from "../prompt";
 
-test("getTools always includes all 8 tools regardless of model", () => {
+test("getTools always includes all tools regardless of model", () => {
   // 默认（无参数）
   const defaultNames = getTools().map((tool) => tool.function.name);
   assert.equal(defaultNames.includes("WebSearch"), true);
   assert.equal(defaultNames.includes("bash"), true);
   assert.equal(defaultNames.includes("AskUserQuestion"), true);
-  assert.equal(defaultNames.length, 8);
+  assert.equal(defaultNames.includes("spawn_code_executor"), true);
+  assert.equal(defaultNames.length, 23);
 
   // Flash 模型也使用完整工具集
   const flashNames = getTools({ webSearchEnabled: true }).map((tool) => tool.function.name);
   assert.equal(flashNames.includes("WebSearch"), true);
   assert.equal(flashNames.includes("bash"), true);
   assert.equal(flashNames.includes("AskUserQuestion"), true);
-  assert.equal(flashNames.length, 8);
+  assert.equal(flashNames.includes("spawn_code_executor"), true);
+  assert.equal(flashNames.length, 23);
 });
 
 test("getSystemPrompt always returns full prompt with all tool docs", () => {

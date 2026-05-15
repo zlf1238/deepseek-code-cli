@@ -283,7 +283,7 @@ export function getSystemPrompt(projectRoot: string, options: PromptToolOptions 
     ? `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolDocs}`
     : SYSTEM_PROMPT_BASE;
   const skillsIndex = getSkillsIndex(projectRoot);
-  return `${basePrompt}${skillsIndex}\n\n${getRuntimeContext(projectRoot)}`;
+  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}\n\n${getRuntimeContext(projectRoot)}`;
 }
 
 export function getCompactPrompt(sessionMessages: SessionMessage[]): string {
@@ -1096,8 +1096,63 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     }
   });
 
+  tools.push({
+    type: "function",
+    function: {
+      name: "spawn_code_executor",
+      description:
+        "将代码修改任务委派给 deepseek-v4-flash 子智能体执行。" +
+        "子智能体拥有隔离的上下文（仅包含文件内容 + 修改指令），不影响主会话缓存。" +
+        "使用时机：多行修改（>5行）、跨文件修改、需要重写的场景。" +
+        "不使用时机：单行修正、变量重命名——这些直接用 edit_file。" +
+        "子智能体默认开启思考模式（effort=high），迭代上限 8 次。",
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description:
+              "精确的修改指令。子智能体没有对话上下文——必须自包含。" +
+              "写明要改什么、改成什么、为什么这样改。例如：'将 auth.ts 第10-50行的 login 函数从同步回调改为 async/await，支持 Promise 链式调用'。",
+          },
+          file_path: {
+            type: "string",
+            description: "要修改的目标文件的绝对路径。",
+          },
+          context: {
+            type: "string",
+            description:
+              "可选：Supervisor 已读取的关键上下文片段（如相关类型定义、调用方代码），" +
+              "帮助子智能体理解修改的上下文。不要粘贴完整文件——子智能体会自己读取。",
+          },
+        },
+        required: ["task", "file_path"],
+        additionalProperties: false,
+      },
+    },
+  });
+
   return tools;
 }
+
+/**
+ * Supervisor-Worker 架构的行为指南。
+ * 始终存在于 system prompt 中（不随配置变化），描述 spawn_code_executor 的使用规则。
+ * 当工具不可用时（autoSwitch=off），Pro 照常直接执行所有修改。
+ */
+const CODE_EXECUTOR_GUIDANCE = `# Code modification strategy (Supervisor-Worker mode)
+
+When the \`spawn_code_executor\` tool is available to you:
+
+1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction.
+2. **Judge complexity.**
+   - Single-line fixes (spelling, variable rename, one-line config change) → use edit_file directly.
+   - Multi-line changes (>5 lines) → call spawn_code_executor.
+   - Cross-file changes → call spawn_code_executor for each file (may batch in parallel).
+3. **Write precise instructions.** The sub-agent has NO conversation context — it only sees the file content and your instruction. Specify exactly what to change and how.
+4. **Do NOT paste full file contents into the instruction.** The sub-agent will read the file itself.
+
+When \`spawn_code_executor\` is NOT available, perform all edits directly as usual.`;
 
 /**
  * 当代码内自动从 pro 切换到 flash 时，注入此系统消息告知 AI 角色变更。

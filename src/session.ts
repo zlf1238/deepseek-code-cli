@@ -2041,6 +2041,29 @@ The candidate skills are as follows:\n\n`;
       }
 
       // 2. 执行这一个 tool call
+      const toolName = getName(rawTc);
+
+      // spawn_code_executor 开始通知（UI 可见，不进入 API 历史）
+      if (toolName === "spawn_code_executor") {
+        const taskParam = (rawTc as { function?: { arguments?: string } })?.function?.arguments;
+        let taskPreview = "";
+        try {
+          if (taskParam) {
+            const parsed = JSON.parse(taskParam);
+            const task = typeof parsed.task === "string" ? parsed.task : "";
+            taskPreview = task.length > 60 ? `${task.slice(0, 60)}…` : task;
+          }
+        } catch { /* ignore parse failure */ }
+        this.onAssistantMessage(
+          this.buildAssistantMessage(
+            sessionId,
+            `[委派执行] Flash 子智能体工作中…${taskPreview ? ` ${taskPreview}` : ""}`,
+            null
+          ),
+          false
+        );
+      }
+
       const [execution] = await this.toolExecutor.executeToolCalls(sessionId, [rawTc], {
         onProcessStart: (pid, command) => this.addSessionProcess(sessionId, pid, command),
         onProcessExit: (pid) => this.removeSessionProcess(sessionId, pid),
@@ -2053,6 +2076,51 @@ The candidate skills are as follows:\n\n`;
 
       if (execution.result.awaitUserResponse === true) {
         waitingForUser = true;
+      }
+
+      // 合并子智能体 usage 到 session 的 usageByModel
+      if (
+        execution.result.name === "spawn_code_executor" &&
+        execution.result.metadata?.subagentUsage
+      ) {
+        const meta = execution.result.metadata;
+        const sUsage = meta.subagentUsage as Record<string, number>;
+        const sModel = (meta.subagentModel as string) ?? "deepseek-v4-flash";
+        const sCostUsd = typeof meta.subagentCostUsd === "number" ? meta.subagentCostUsd : 0;
+        const sElapsedMs = typeof meta.subagentElapsedMs === "number" ? meta.subagentElapsedMs : 0;
+
+        this.updateSessionEntry(sessionId, (entry) => {
+          const currentByModel = (entry.usageByModel ?? {}) as Record<string, unknown>;
+          const modelEntry = (currentByModel[sModel] ?? {}) as Record<string, number>;
+          const merged = { ...modelEntry };
+          for (const [k, v] of Object.entries(sUsage)) {
+            merged[k] = (merged[k] ?? 0) + v;
+          }
+          return {
+            ...entry,
+            usageByModel: { ...currentByModel, [sModel]: merged },
+          } as typeof entry;
+        });
+
+        // 子智能体完成 UI 通知
+        const elapsed = sElapsedMs >= 60000
+          ? `${Math.floor(sElapsedMs / 60000)}m${Math.round((sElapsedMs % 60000) / 1000)}s`
+          : `${(sElapsedMs / 1000).toFixed(1)}s`;
+        const totalTokens = (sUsage.prompt_tokens ?? 0) + (sUsage.completion_tokens ?? 0);
+        const hitTokens = sUsage.prompt_cache_hit_tokens ?? 0;
+        const missTokens = sUsage.prompt_cache_miss_tokens ?? 0;
+        const hitPct = (hitTokens + missTokens) > 0
+          ? Math.round((hitTokens / (hitTokens + missTokens)) * 100)
+          : 0;
+        const costStr = sCostUsd > 0 ? ` · ¥${sCostUsd.toFixed(4)}` : "";
+        this.onAssistantMessage(
+          this.buildAssistantMessage(
+            sessionId,
+            `[委派执行] ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}`,
+            null
+          ),
+          false
+        );
       }
 
       // 3. 追加工具结果（AskUserQuestion 正常显示，其余隐藏）
