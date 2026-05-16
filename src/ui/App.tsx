@@ -360,6 +360,12 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
               }
             }
 
+            console.error(
+              `[model-detail debug] usageByModelDiff keys=${Object.keys(usageByModelDiff).join(",") || "(none)"} ` +
+              `before keys=${Object.keys(usageByModelBefore).join(",") || "(none)"} ` +
+              `rawAfter truthy=${!!rawByModelAfter}`
+            );
+
             const summaryMessage = buildCompletionSummary(
               session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens,
               roundCacheHit, roundCacheMiss, pricingRef.current,
@@ -628,9 +634,11 @@ export function buildCompletionSummary(
   parts.push(`耗时: ${elapsed}`);
 
   // ── 按模型拆分展示 token、缓存命中率、费用 ──
+  let modelDetailLine = "";
   if (usageByModelDiff && resolveModelPricing) {
     const modelNames = Object.keys(usageByModelDiff).sort();
     const modelDetailParts: string[] = [];
+    let sumModelCost = 0;
 
     for (const modelName of modelNames) {
       const diff = usageByModelDiff[modelName];
@@ -659,6 +667,7 @@ export function buildCompletionSummary(
         + (modelCacheMiss / 1_000_000) * mMissPrice
         + (Math.max(0, modelPrompt - modelCacheHit - modelCacheMiss) / 1_000_000) * mp.inputPricePerMillion
         + (modelCompletion / 1_000_000) * mp.outputPricePerMillion;
+      sumModelCost += modelCost;
 
       const subParts: string[] = [`token=${formatTokenCount(modelTokens)}`];
       if (modelHitPct !== undefined) {
@@ -682,23 +691,12 @@ export function buildCompletionSummary(
         parts.push(`缓存命中: ${hitPct}%`);
       }
 
-      // 总费用
-      const cacheHitPrice = pricing.inputCacheHitPricePerMillion > 0
-        ? pricing.inputCacheHitPricePerMillion
-        : pricing.inputPricePerMillion;
-      const cacheMissPrice = pricing.inputCacheMissPricePerMillion > 0
-        ? pricing.inputCacheMissPricePerMillion
-        : pricing.inputPricePerMillion;
-      let totalCost = 0;
-      totalCost += (roundCacheHitTokens / 1_000_000) * cacheHitPrice;
-      totalCost += (roundCacheMissTokens / 1_000_000) * cacheMissPrice;
-      totalCost += (Math.max(0, roundPromptTokens - cacheTotal) / 1_000_000) * pricing.inputPricePerMillion;
-      totalCost += (roundCompletionTokens / 1_000_000) * pricing.outputPricePerMillion;
-      if (totalCost > 0) {
-        parts.push(`费用: ¥${formatCost(totalCost)}`);
+      // 总费用 = 各模型费用之和（按各自费率计算）
+      if (sumModelCost > 0) {
+        parts.push(`费用: ¥${formatCost(sumModelCost)}`);
       }
 
-      parts.push(`模型明细: ${modelDetailParts.join(" + ")}`);
+      modelDetailLine = `\n · 模型明细: ${modelDetailParts.join(" + ")}`;
     }
   } else {
     // 无 usageByModelDiff 时，回退到原有总体展示
@@ -733,7 +731,7 @@ export function buildCompletionSummary(
     id: `summary-${Math.random().toString(36).slice(2)}`,
     sessionId: session.id,
     role: "system",
-    content: parts.join(" · "),
+    content: parts.join(" · ") + modelDetailLine,
     contentParams: null,
     messageParams: { statusColor },
     compacted: false,
@@ -807,6 +805,7 @@ function resolveModelPricing(modelName: string): Required<PricingConfig> {
   // 绕过 mode 覆写，确保获取到指定模型的正确费率
   const raw = readSettings();
   if (raw) { raw.mode = undefined; }
+  if (raw?.env) { raw.env.MODEL = undefined; }
   return resolveSettings(raw, { model: modelName, baseURL: DEFAULT_BASE_URL }).pricing;
 }
 
@@ -830,6 +829,7 @@ export function resolveCurrentSettings(): ReturnType<typeof resolveSettings> {
   });
 }
 
+/** 根据 overrideModel 创建 OpenAI 客户端实例，同时解析对应模型的 pricing、thinking 等配置。 */
 export function createOpenAIClient(overrideModel?: string): {
   client: OpenAI | null;
   model: string;

@@ -1971,6 +1971,12 @@ The candidate skills are as follows:\n\n`;
         const sUsage = meta.subagentUsage as Record<string, number>;
         const sModel = (meta.subagentModel as string) ?? "deepseek-v4-flash";
         const sCostUsd = typeof meta.subagentCostUsd === "number" ? meta.subagentCostUsd : 0;
+        console.error(
+          `[spawn debug] session: sModel=${sModel} sCostUsd=${sCostUsd} ` +
+          `sUsage keys=${Object.keys(sUsage).join(",")} ` +
+          `prompt=${sUsage.prompt_tokens} completion=${sUsage.completion_tokens} ` +
+          `hit=${sUsage.prompt_cache_hit_tokens} miss=${sUsage.prompt_cache_miss_tokens}`
+        );
         const sElapsedMs = typeof meta.subagentElapsedMs === "number" ? meta.subagentElapsedMs : 0;
 
         this.updateSessionEntry(sessionId, (entry) => {
@@ -1997,10 +2003,34 @@ The candidate skills are as follows:\n\n`;
           ? Math.round((hitTokens / (hitTokens + missTokens)) * 100)
           : 0;
         const costStr = sCostUsd > 0 ? ` · ¥${sCostUsd.toFixed(4)}` : "";
+
+        // 计算若由 Pro 模型执行同等 token 量的理论费用，用于对比节省
+        let savingsStr = "";
+        if (sCostUsd > 0) {
+          const proPricing = this.createOpenAIClient().pricing;
+          if (proPricing) {
+            const pHit = hitTokens;
+            const pMiss = missTokens;
+            const pPrompt = sUsage.prompt_tokens ?? 0;
+            const pCompletion = sUsage.completion_tokens ?? 0;
+            let proCost = 0;
+            proCost += (pHit / 1_000_000) * proPricing.inputCacheHitPricePerMillion;
+            proCost += (pMiss / 1_000_000) * proPricing.inputCacheMissPricePerMillion;
+            const uncat = Math.max(0, pPrompt - pHit - pMiss);
+            proCost += (uncat / 1_000_000) * proPricing.inputCacheMissPricePerMillion;
+            proCost += (pCompletion / 1_000_000) * proPricing.outputPricePerMillion;
+            if (proCost > sCostUsd) {
+              const saved = proCost - sCostUsd;
+              const pct = Math.round((saved / proCost) * 100);
+              savingsStr = ` · 比Pro节省 ¥${saved.toFixed(4)} (${pct}%)`;
+            }
+          }
+        }
+
         this.onAssistantMessage(
           this.buildAssistantMessage(
             sessionId,
-            `[委派执行] ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}`,
+            `[委派执行] ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}${savingsStr}`,
             null
           ),
           false
@@ -2429,6 +2459,9 @@ The candidate skills are as follows:\n\n`;
       status: this.normalizeSessionStatus(value.status),
       failReason: typeof value.failReason === "string" ? value.failReason : null,
       usage: value.usage ?? null,
+      usageByModel: value.usageByModel && typeof value.usageByModel === "object" && !Array.isArray(value.usageByModel)
+        ? value.usageByModel as Record<string, unknown>
+        : undefined,
       activeTokens: typeof value.activeTokens === "number" ? value.activeTokens : 0,
       compactThreshold: typeof value.compactThreshold === "number" ? value.compactThreshold : 0,
       createTime: typeof value.createTime === "string" ? value.createTime : new Date().toISOString(),

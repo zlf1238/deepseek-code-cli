@@ -17,12 +17,17 @@ import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 export const CODE_EXECUTOR_SYSTEM = `You are a code executor sub-agent. Your ONLY job is to execute the parent's modification instruction precisely.
 
 Rules:
-1. Read the target file first using read_file to see current contents
-2. Apply the modification using edit_file with SEARCH/REPLACE blocks
-3. Do NOT expand scope — change ONLY what the instruction specifies
-4. Do NOT add "improvements", refactoring, or extra fixes beyond the instruction
-5. If the instruction is unclear or the target code cannot be found, return what's unclear instead of guessing
-6. Return a one-sentence summary of changes made, followed by the list of files modified
+1. Read all target files first using read_file to see current contents of each file
+2. Apply modifications using edit_file with SEARCH/REPLACE blocks — work through files in logical order
+3. When modifying multiple files, keep in mind how changes in one file affect others (e.g. type changes in one file may require matching changes in callers)
+4. Do NOT expand scope — change ONLY what the instruction specifies
+5. Do NOT add "improvements", refactoring, or extra fixes beyond the instruction
+6. If the instruction is unclear or the target code cannot be found, return what's unclear instead of guessing
+7. If edit_file fails because the old_string was not found:
+   a. Re-read the file to get the current (possibly changed) content
+   b. Adjust the old_string to match exactly what's in the file
+   c. Retry the edit (up to 2 retries per file — after that, report failure for that specific file)
+8. Return a one-sentence summary of changes made, followed by the list of files modified
 
 You have NO conversation context — only the file content and the task instruction.`;
 
@@ -133,7 +138,10 @@ function calculateSubagentCost(
   usage: Record<string, number>,
   pricing?: PricingSnapshot,
 ): number {
-  if (!pricing) return 0;
+  if (!pricing) {
+    console.error("[spawn debug] calculateSubagentCost: pricing is undefined/null — returning 0");
+    return 0;
+  }
   const hit = usage.prompt_cache_hit_tokens ?? 0;
   const miss = usage.prompt_cache_miss_tokens ?? 0;
   const prompt = usage.prompt_tokens ?? 0;
@@ -146,6 +154,10 @@ function calculateSubagentCost(
   const uncategorized = Math.max(0, prompt - hit - miss);
   cost += (uncategorized / 1_000_000) * pricing.inputCacheMissPricePerMillion;
   cost += (completion / 1_000_000) * pricing.outputPricePerMillion;
+  console.error(
+    `[spawn debug] calculateSubagentCost: prompt=${prompt} completion=${completion} ` +
+    `hit=${hit} miss=${miss} uncat=${uncategorized} → cost=¥${cost.toFixed(6)}`
+  );
   return cost;
 }
 
@@ -155,10 +167,21 @@ export async function handleCodeExecutorTool(
 ): Promise<ToolExecutionResult> {
   // ── 1. 参数解析 ──
   const task = typeof args.task === "string" ? args.task.trim() : "";
-  const filePath =
-    typeof args.file_path === "string" ? args.file_path.trim() : "";
   const extraContext =
     typeof args.context === "string" ? args.context.trim() : "";
+
+  // 优先 file_paths 数组，回退到 file_path 单字符串（向后兼容）
+  const filePaths: string[] = (() => {
+    const arr = args.file_paths;
+    if (Array.isArray(arr)) {
+      return arr
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter((x) => x.length > 0);
+    }
+    const single = args.file_path;
+    if (typeof single === "string" && single.trim()) return [single.trim()];
+    return [];
+  })();
 
   if (!task) {
     return {
@@ -167,11 +190,12 @@ export async function handleCodeExecutorTool(
       error: "Missing required 'task' argument — the sub-agent has nothing to do.",
     };
   }
-  if (!filePath) {
+  if (filePaths.length === 0) {
     return {
       ok: false,
       name: "spawn_code_executor",
-      error: "Missing required 'file_path' argument — the sub-agent needs to know which file to modify.",
+      error:
+        "Missing required 'file_paths' argument — the sub-agent needs to know which file(s) to modify.",
     };
   }
 
@@ -186,7 +210,13 @@ export async function handleCodeExecutorTool(
     : (defaultInfo?.model ?? "deepseek-v4-flash");
   const baseURL = flashInfo?.baseURL ?? defaultInfo?.baseURL;
   const pricing = flashInfo?.pricing ?? defaultInfo?.pricing;
-  const thinkingEnabled = true;
+  console.error(
+    `[spawn debug] pricing source: flashInfo=${!!flashInfo} flashPricing=${!!flashInfo?.pricing} ` +
+    `defaultPricing=${!!defaultInfo?.pricing} ` +
+    `finalPricing={hit=${pricing?.inputCacheHitPricePerMillion} miss=${pricing?.inputCacheMissPricePerMillion} out=${pricing?.outputPricePerMillion}}`
+  );
+  // enable_thinking 默认为 true（子智能体默认开思考，Supervisor 可通过参数关闭）
+  const thinkingEnabled = typeof args.enable_thinking === "boolean" ? args.enable_thinking : true;
   const reasoningEffort: "high" | "max" = "high";
 
   if (!client) {
@@ -198,7 +228,8 @@ export async function handleCodeExecutorTool(
   }
 
   // ── 3. 构建子智能体消息 ──
-  let userContent = `Modification task: ${task}\nTarget file: ${filePath}`;
+  const filesList = filePaths.map((f) => `  - ${f}`).join("\n");
+  let userContent = `Modification task: ${task}\nTarget files (${filePaths.length}):\n${filesList}`;
   if (extraContext) {
     userContent += `\n\nAdditional context from supervisor:\n${extraContext}`;
   }
@@ -208,6 +239,8 @@ export async function handleCodeExecutorTool(
     content: string;
     tool_calls?: unknown[];
     tool_call_id?: string;
+    /** DeepSeek thinking mode: reasoning_content 必须在后续请求中回传，否则 API 400 */
+    reasoning_content?: string;
   }> = [
     { role: "system", content: CODE_EXECUTOR_SYSTEM },
     { role: "user", content: userContent },
@@ -222,6 +255,10 @@ export async function handleCodeExecutorTool(
     baseURL,
     reasoningEffort,
   );
+
+  // 自修正重试追踪：每个文件的 edit 失败次数
+  const editRetries = new Map<string, number>();
+  const MAX_EDIT_RETRIES = 2;
 
   // 导入 handler（动态导入避免循环依赖）
   const { handleReadTool } =
@@ -243,6 +280,7 @@ export async function handleCodeExecutorTool(
       })) as OpenAI.Chat.Completions.ChatCompletion;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const costUsd = calculateSubagentCost(totalUsage, pricing);
       return {
         ok: false,
         name: "spawn_code_executor",
@@ -250,6 +288,7 @@ export async function handleCodeExecutorTool(
         metadata: {
           subagentModel: model,
           subagentUsage: totalUsage,
+          subagentCostUsd: costUsd,
           subagentElapsedMs: Date.now() - startedAt,
         },
       };
@@ -264,6 +303,9 @@ export async function handleCodeExecutorTool(
       ?.content ?? "";
     const toolCalls =
       (message as { tool_calls?: unknown[] } | undefined)?.tool_calls ?? null;
+    // 提取 reasoning_content 以便后续回传（DeepSeek thinking mode 要求）
+    const reasoningContent =
+      (message as { reasoning_content?: string } | undefined)?.reasoning_content ?? undefined;
 
     // 无工具调用 → 子智能体完成任务
     if (!toolCalls || toolCalls.length === 0) {
@@ -293,12 +335,21 @@ export async function handleCodeExecutorTool(
     // 记录工具调用计数
     toolIters += toolCalls.length;
 
-    // 追加 assistant 消息（含 tool calls）
-    messages.push({
+    // 追加 assistant 消息（含 tool calls，回传 reasoning_content 以满足 thinking mode 协议）
+    const assistantMsg: {
+      role: "assistant";
+      content: string;
+      tool_calls?: unknown[];
+      reasoning_content?: string;
+    } = {
       role: "assistant",
       content: content ?? "",
       tool_calls: toolCalls,
-    });
+    };
+    if (reasoningContent) {
+      assistantMsg.reasoning_content = reasoningContent;
+    }
+    messages.push(assistantMsg);
 
     // 执行每个工具调用
     for (const tc of toolCalls as Array<{
@@ -339,7 +390,7 @@ export async function handleCodeExecutorTool(
             },
           });
           break;
-        case "edit_file":
+        case "edit_file": {
           result = await handleEditTool(parsedArgs, {
             sessionId: context.sessionId,
             projectRoot: context.projectRoot,
@@ -349,7 +400,30 @@ export async function handleCodeExecutorTool(
               function: { name: "edit_file", arguments: rawArgs },
             },
           });
+          // 自修正重试追踪：记录 edit 失败次数
+          if (!result.ok && result.error) {
+            const editFile = (parsedArgs.file_path as string) ?? "unknown";
+            const prev = editRetries.get(editFile) ?? 0;
+            editRetries.set(editFile, prev + 1);
+            if (prev >= MAX_EDIT_RETRIES) {
+              result = {
+                ok: false,
+                name: "edit_file",
+                error: `${result.error}\n[已达到最大重试次数 ${MAX_EDIT_RETRIES}，请报告失败原因。]`,
+              };
+            } else {
+              result = {
+                ...result,
+                error: `${result.error}\n[重试 ${prev + 1}/${MAX_EDIT_RETRIES}：请 re-read 文件后调整 old_string]`,
+              };
+            }
+          } else if (result.ok) {
+            // 成功后重置该文件的重试计数
+            const editFile = (parsedArgs.file_path as string) ?? "unknown";
+            editRetries.delete(editFile);
+          }
           break;
+        }
         case "write_file":
           result = await handleWriteTool(parsedArgs, {
             sessionId: context.sessionId,

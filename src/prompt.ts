@@ -291,14 +291,16 @@ export function getSystemPrompt(projectRoot: string, options: PromptToolOptions 
 /** Supervisor-Worker 架构的行为指南，嵌入 system prompt。 */
 const CODE_EXECUTOR_GUIDANCE = `# Code modification strategy (Supervisor-Worker mode)
 
+**Hard constraint:** You MUST delegate all multi-file or multi-edit changes. Never make more than one edit_file call in a single turn. Use spawn_code_executor for everything beyond a single, one-file, one-edit change.
+
 You are the Supervisor. Your Pro context is always hot (cached). Use spawn_code_executor to delegate code modifications to a Flash sub-agent:
 
 1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction.
 2. **Judge complexity.**
-   - Single-line fixes (spelling, variable rename, one-line config change) → use edit_file directly.
-   - Multi-line changes (>5 lines) → call spawn_code_executor.
-   - Cross-file changes → call spawn_code_executor for each file (may batch in parallel).
+   - Single-file, single-edit, trivial change (spelling, rename, one-line fix) → use edit_file directly.
+   - Multiple edits on one file, OR changes spanning multiple files → MUST call spawn_code_executor with all file paths in file_paths. Do NOT chain multiple edit_file calls yourself.
 3. **Write precise instructions.** The sub-agent has NO conversation context — it only sees the file content and your instruction. Specify exactly what to change and how.
+   **Before every edit_file call, verify:** Is this the ONLY edit needed? Does it touch only ONE file? If either answer is No — spawn_code_executor instead.
 4. **Do NOT paste full file contents into the instruction.** The sub-agent will read the file itself.
 5. **Verify after delegation.** When the sub-agent returns:
    - Cross-file changes or critical logic → read_file the modified file to verify correctness.
@@ -1128,7 +1130,8 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
           "子智能体拥有隔离的上下文（仅包含文件内容 + 修改指令），不影响主会话缓存。" +
           "使用时机：多行修改（>5行）、跨文件修改、需要重写的场景。" +
           "不使用时机：单行修正、变量重命名——这些直接用 edit_file。" +
-          "子智能体默认开启思考模式（effort=high），迭代上限 8 次。",
+          "子智能体默认开启思考模式（effort=high），迭代上限 8 次。" +
+          "对机械替换类任务（改类型名、改函数签名），Supervisor 可传 enable_thinking=false 节省 token。",
         parameters: {
           type: "object",
           properties: {
@@ -1138,9 +1141,12 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
                 "精确的修改指令。子智能体没有对话上下文——必须自包含。" +
                 "写明要改什么、改成什么、为什么这样改。例如：'将 auth.ts 第10-50行的 login 函数从同步回调改为 async/await，支持 Promise 链式调用'。",
             },
-            file_path: {
-              type: "string",
-              description: "要修改的目标文件的绝对路径。",
+            file_paths: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "要修改的目标文件的绝对路径列表。跨文件修改时一次传入所有相关文件，" +
+                "子智能体会在同一个上下文中依次处理所有文件。单文件修改时传包含一个元素的数组。",
             },
             context: {
               type: "string",
@@ -1148,8 +1154,14 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
                 "可选：Supervisor 已读取的关键上下文片段（如相关类型定义、调用方代码），" +
                 "帮助子智能体理解修改的上下文。不要粘贴完整文件——子智能体会自己读取。",
             },
+            enable_thinking: {
+              type: "boolean",
+              description:
+                "可选：是否开启子智能体思考模式，默认 true。" +
+                "对简单机械修改（改名、改类型签名）建议设为 false 以节省 token 和延迟。",
+            },
           },
-          required: ["task", "file_path"],
+          required: ["task", "file_paths"],
           additionalProperties: false,
         },
       },
