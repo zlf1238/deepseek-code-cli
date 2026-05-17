@@ -295,17 +295,17 @@ const CODE_EXECUTOR_GUIDANCE = `# Code modification strategy (Supervisor-Worker 
 
 You are the Supervisor. Your Pro context is always hot (cached). Use spawn_code_executor to delegate code modifications to a Flash sub-agent:
 
-1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction.
+1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction. If the task references external types, functions, or imports, you MUST capture their definitions and pass them via the context field.
 2. **Judge complexity.**
    - Single-file, single-edit, trivial change (spelling, rename, one-line fix) → use edit_file directly.
    - Multiple edits on one file, OR changes spanning multiple files → MUST call spawn_code_executor with all file paths in file_paths. Do NOT chain multiple edit_file calls yourself.
 3. **Write precise instructions.** The sub-agent has NO conversation context — it only sees the file content and your instruction. Specify exactly what to change and how.
    **Before every edit_file call, verify:** Is this the ONLY edit needed? Does it touch only ONE file? If either answer is No — spawn_code_executor instead.
-4. **Do NOT paste full file contents into the instruction.** The sub-agent will read the file itself.
-5. **Verify after delegation.** When the sub-agent returns:
-   - Cross-file changes or critical logic → read_file the modified file to verify correctness.
-   - Single-file straightforward changes → trust the sub-agent's success output and move on.
-   - If the sub-agent reports failure → read the file, diagnose, and either fix directly or re-delegate with a clearer instruction.
+4. **Provide required context.** If the modification involves types, function signatures, or imports defined in other files, you MUST include them in the context parameter. Otherwise the sub-agent cannot complete the task.
+5. **Decide on confirmation.** For deletions >10 lines, cross-file refactors, or changes to critical modules, set require_confirmation=true to let the user review before execution.
+6. **Verify after delegation.** When the sub-agent returns:
+   - Success → verify cross-file changes with read_file; trust single-file changes.
+   - Failure → read the failureCode: NOT_FOUND/AMBIGUOUS → re-read and re-delegate with better context. API_ERROR → retry once. TIMEOUT/SCOPE_EXCEEDED → fix directly yourself.
 
 When \`spawn_code_executor\` is NOT available, perform all edits directly as usual.`;
 
@@ -1151,8 +1151,22 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
             context: {
               type: "string",
               description:
-                "可选：Supervisor 已读取的关键上下文片段（如相关类型定义、调用方代码），" +
-                "帮助子智能体理解修改的上下文。不要粘贴完整文件——子智能体会自己读取。",
+                "关键上下文片段（如相关类型定义、调用方签名、import 路径）。" +
+                "当 task 涉及外部类型/函数名时**必须**提供此字段，否则子智能体会因信息不足而失败。" +
+                "不要粘贴完整文件——只提供修改所必需的类型和签名。",
+            },
+            require_confirmation: {
+              type: "boolean",
+              description:
+                "可选：是否在 spawn 前要求用户确认。默认 false。" +
+                "跨文件修改、删除代码超过 10 行、涉及关键模块时建议设为 true。",
+            },
+            allowed_tools: {
+              type: "array",
+              items: { type: "string", enum: ["read_file", "edit_file", "write_file", "grep"] },
+              description:
+                "可选：子智能体可使用的工具列表，默认仅 read_file + edit_file + write_file。" +
+                "如需子智能体自行搜索定位代码，可追加 grep。",
             },
             enable_thinking: {
               type: "boolean",

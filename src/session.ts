@@ -1971,12 +1971,6 @@ The candidate skills are as follows:\n\n`;
         const sUsage = meta.subagentUsage as Record<string, number>;
         const sModel = (meta.subagentModel as string) ?? "deepseek-v4-flash";
         const sCostUsd = typeof meta.subagentCostUsd === "number" ? meta.subagentCostUsd : 0;
-        console.error(
-          `[spawn debug] session: sModel=${sModel} sCostUsd=${sCostUsd} ` +
-          `sUsage keys=${Object.keys(sUsage).join(",")} ` +
-          `prompt=${sUsage.prompt_tokens} completion=${sUsage.completion_tokens} ` +
-          `hit=${sUsage.prompt_cache_hit_tokens} miss=${sUsage.prompt_cache_miss_tokens}`
-        );
         const sElapsedMs = typeof meta.subagentElapsedMs === "number" ? meta.subagentElapsedMs : 0;
 
         this.updateSessionEntry(sessionId, (entry) => {
@@ -2031,6 +2025,27 @@ The candidate skills are as follows:\n\n`;
           this.buildAssistantMessage(
             sessionId,
             `[委派执行] ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}${savingsStr}`,
+            null
+          ),
+          false
+        );
+      } else if (execution.result.name === "spawn_code_executor" && !execution.result.ok) {
+        // 子智能体失败通知：展示失败码
+        const meta = execution.result.metadata;
+        const failureCode = (meta?.failureCode as string) ?? "API_ERROR";
+        const codeLabel: Record<string, string> = {
+          API_ERROR: "API错误",
+          NO_CLIENT: "无可用客户端",
+          NOT_FOUND: "代码未找到",
+          AMBIGUOUS: "指令不明确",
+          TIMEOUT: "超迭代上限",
+          SCOPE_EXCEEDED: "范围越界",
+        };
+        const label = codeLabel[failureCode] ?? failureCode;
+        this.onAssistantMessage(
+          this.buildAssistantMessage(
+            sessionId,
+            `[委派执行] ✗ 失败 · ${label} · ${execution.result.error ?? "未知错误"}`,
             null
           ),
           false

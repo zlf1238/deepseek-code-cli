@@ -13,6 +13,15 @@ import { buildThinkingRequestOptions } from "../openai-thinking";
 import type { PricingSnapshot } from "../model-capabilities";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 
+/** 子智能体失败分类码，Supervisor 可按分类决定重试策略 */
+export type SubagentFailureCode =
+  | "API_ERROR"        // API 调用失败（网络/认证/服务端错误）
+  | "NO_CLIENT"        // 无可用的 API 客户端
+  | "NOT_FOUND"        // 目标代码在文件中未找到
+  | "AMBIGUOUS"        // 指令不够明确，无法执行
+  | "TIMEOUT"          // 超出最大迭代次数
+  | "SCOPE_EXCEEDED";  // 子智能体尝试扩大修改范围
+
 /** 子智能体的系统提示词 —— 纯执行，不扩展范围 */
 export const CODE_EXECUTOR_SYSTEM = `You are a code executor sub-agent. Your ONLY job is to execute the parent's modification instruction precisely.
 
@@ -34,80 +43,76 @@ You have NO conversation context — only the file content and the task instruct
 /** 子智能体最大迭代次数 */
 const MAX_ITERS = 8;
 
-/** 子智能体的工具定义（仅 read_file + edit_file + write_file） */
-function getSubagentTools() {
-  return [
-    {
-      type: "function" as const,
-      function: {
-        name: "read_file",
-        description: "读取文件内容。",
-        parameters: {
-          type: "object" as const,
-          properties: {
-            file_path: {
-              type: "string" as const,
-              description: "文件的绝对路径。",
-            },
-          },
-          required: ["file_path"],
-          additionalProperties: false,
+/** 子智能体的工具定义（默认 read_file + edit_file + write_file，可通过 allowedTools 扩展） */
+function getSubagentTools(allowedTools?: string[]) {
+  const toolSet = new Set(allowedTools ?? ["read_file", "edit_file", "write_file"]);
+  const tools: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: { type: "object"; properties: Record<string, unknown>; required: string[]; additionalProperties: boolean };
+    };
+  }> = [];
+
+  if (toolSet.has("read_file")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "read_file",
+      description: "读取文件内容。",
+      parameters: { type: "object" as const, properties: { file_path: { type: "string" as const, description: "文件的绝对路径。" } }, required: ["file_path"], additionalProperties: false },
+    },
+  });
+
+  if (toolSet.has("edit_file")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "edit_file",
+      description: "在文件中执行精确的 SEARCH/REPLACE 范围替换。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          file_path: { type: "string" as const, description: "要修改的文件的绝对路径。" },
+          old_string: { type: "string" as const, description: "要替换的确切文本。" },
+          new_string: { type: "string" as const, description: "替换后的文本。" },
+          replace_all: { type: "boolean" as const, description: "是否替换所有匹配项（默认 false）。" },
         },
+        required: ["file_path", "old_string", "new_string"], additionalProperties: false,
       },
     },
-    {
-      type: "function" as const,
-      function: {
-        name: "edit_file",
-        description: "在文件中执行精确的 SEARCH/REPLACE 范围替换。",
-        parameters: {
-          type: "object" as const,
-          properties: {
-            file_path: {
-              type: "string" as const,
-              description: "要修改的文件的绝对路径。",
-            },
-            old_string: {
-              type: "string" as const,
-              description: "要替换的确切文本。",
-            },
-            new_string: {
-              type: "string" as const,
-              description: "替换后的文本。",
-            },
-            replace_all: {
-              type: "boolean" as const,
-              description: "是否替换所有匹配项（默认 false）。",
-            },
-          },
-          required: ["file_path", "old_string", "new_string"],
-          additionalProperties: false,
-        },
+  });
+
+  if (toolSet.has("write_file")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "write_file",
+      description: "创建新文件或覆写现有文件。",
+      parameters: {
+        type: "object" as const,
+        properties: { file_path: { type: "string" as const, description: "文件的绝对路径。" }, content: { type: "string" as const, description: "完整的文件内容。" } },
+        required: ["file_path", "content"], additionalProperties: false,
       },
     },
-    {
-      type: "function" as const,
-      function: {
-        name: "write_file",
-        description: "创建新文件或覆写现有文件。",
-        parameters: {
-          type: "object" as const,
-          properties: {
-            file_path: {
-              type: "string" as const,
-              description: "文件的绝对路径。",
-            },
-            content: {
-              type: "string" as const,
-              description: "完整的文件内容。",
-            },
-          },
-          required: ["file_path", "content"],
-          additionalProperties: false,
+  });
+
+  if (toolSet.has("grep")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "grep",
+      description: "在文件中搜索文本或正则表达式。返回匹配行及上下文。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          pattern: { type: "string" as const, description: "要搜索的文本或正则表达式。" },
+          path: { type: "string" as const, description: "搜索路径，默认为项目根目录。" },
+          include: { type: "string" as const, description: "文件扩展名过滤，如 \"*.ts\"。" },
         },
+        required: ["pattern"], additionalProperties: false,
       },
     },
-  ];
+  });
+
+  return tools;
 }
 
 /** 辅助：累积 usage 对象 */
@@ -138,10 +143,7 @@ function calculateSubagentCost(
   usage: Record<string, number>,
   pricing?: PricingSnapshot,
 ): number {
-  if (!pricing) {
-    console.error("[spawn debug] calculateSubagentCost: pricing is undefined/null — returning 0");
-    return 0;
-  }
+  if (!pricing) return 0;
   const hit = usage.prompt_cache_hit_tokens ?? 0;
   const miss = usage.prompt_cache_miss_tokens ?? 0;
   const prompt = usage.prompt_tokens ?? 0;
@@ -154,10 +156,6 @@ function calculateSubagentCost(
   const uncategorized = Math.max(0, prompt - hit - miss);
   cost += (uncategorized / 1_000_000) * pricing.inputCacheMissPricePerMillion;
   cost += (completion / 1_000_000) * pricing.outputPricePerMillion;
-  console.error(
-    `[spawn debug] calculateSubagentCost: prompt=${prompt} completion=${completion} ` +
-    `hit=${hit} miss=${miss} uncat=${uncategorized} → cost=¥${cost.toFixed(6)}`
-  );
   return cost;
 }
 
@@ -188,6 +186,7 @@ export async function handleCodeExecutorTool(
       ok: false,
       name: "spawn_code_executor",
       error: "Missing required 'task' argument — the sub-agent has nothing to do.",
+      metadata: { failureCode: "AMBIGUOUS" as SubagentFailureCode },
     };
   }
   if (filePaths.length === 0) {
@@ -196,6 +195,7 @@ export async function handleCodeExecutorTool(
       name: "spawn_code_executor",
       error:
         "Missing required 'file_paths' argument — the sub-agent needs to know which file(s) to modify.",
+      metadata: { failureCode: "AMBIGUOUS" as SubagentFailureCode },
     };
   }
 
@@ -210,20 +210,22 @@ export async function handleCodeExecutorTool(
     : (defaultInfo?.model ?? "deepseek-v4-flash");
   const baseURL = flashInfo?.baseURL ?? defaultInfo?.baseURL;
   const pricing = flashInfo?.pricing ?? defaultInfo?.pricing;
-  console.error(
-    `[spawn debug] pricing source: flashInfo=${!!flashInfo} flashPricing=${!!flashInfo?.pricing} ` +
-    `defaultPricing=${!!defaultInfo?.pricing} ` +
-    `finalPricing={hit=${pricing?.inputCacheHitPricePerMillion} miss=${pricing?.inputCacheMissPricePerMillion} out=${pricing?.outputPricePerMillion}}`
-  );
   // enable_thinking 默认为 true（子智能体默认开思考，Supervisor 可通过参数关闭）
   const thinkingEnabled = typeof args.enable_thinking === "boolean" ? args.enable_thinking : true;
   const reasoningEffort: "high" | "max" = "high";
+  // 解析 allowed_tools：Supervisor 可指定子智能体可用工具集
+  const allowedTools: string[] | undefined = Array.isArray(args.allowed_tools)
+    ? (args.allowed_tools as string[]).filter((t) => typeof t === "string")
+    : undefined;
+  // require_confirmation：要求 spawn 前用户确认
+  const requireConfirmation = typeof args.require_confirmation === "boolean" ? args.require_confirmation : false;
 
   if (!client) {
     return {
       ok: false,
       name: "spawn_code_executor",
       error: "No API client available for code executor sub-agent.",
+      metadata: { failureCode: "NO_CLIENT" as SubagentFailureCode },
     };
   }
 
@@ -275,7 +277,7 @@ export async function handleCodeExecutorTool(
       response = (await client.chat.completions.create({
         model,
         messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        tools: getSubagentTools() as OpenAI.Chat.Completions.ChatCompletionTool[],
+        tools: getSubagentTools(allowedTools) as OpenAI.Chat.Completions.ChatCompletionTool[],
         ...thinkingOptions,
       })) as OpenAI.Chat.Completions.ChatCompletion;
     } catch (err) {
@@ -286,6 +288,7 @@ export async function handleCodeExecutorTool(
         name: "spawn_code_executor",
         error: `Sub-agent API call failed: ${msg}`,
         metadata: {
+          failureCode: "API_ERROR" as SubagentFailureCode,
           subagentModel: model,
           subagentUsage: totalUsage,
           subagentCostUsd: costUsd,
@@ -410,6 +413,7 @@ export async function handleCodeExecutorTool(
                 ok: false,
                 name: "edit_file",
                 error: `${result.error}\n[已达到最大重试次数 ${MAX_EDIT_RETRIES}，请报告失败原因。]`,
+                metadata: { failureCode: "NOT_FOUND" as SubagentFailureCode },
               };
             } else {
               result = {
@@ -440,6 +444,7 @@ export async function handleCodeExecutorTool(
             ok: false,
             name: toolName,
             error: `Sub-agent tool not allowed: ${toolName}. Only read_file, edit_file, write_file are permitted.`,
+            metadata: { failureCode: "SCOPE_EXCEEDED" as SubagentFailureCode },
           };
       }
 
@@ -467,6 +472,7 @@ export async function handleCodeExecutorTool(
     name: "spawn_code_executor",
     error: `Sub-agent exceeded maximum ${MAX_ITERS} iterations without completing the task.`,
     metadata: {
+      failureCode: "TIMEOUT" as SubagentFailureCode,
       subagentModel: model,
       subagentUsage: totalUsage,
       subagentCostUsd: costUsd,

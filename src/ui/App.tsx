@@ -360,12 +360,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
               }
             }
 
-            console.error(
-              `[model-detail debug] usageByModelDiff keys=${Object.keys(usageByModelDiff).join(",") || "(none)"} ` +
-              `before keys=${Object.keys(usageByModelBefore).join(",") || "(none)"} ` +
-              `rawAfter truthy=${!!rawByModelAfter}`
-            );
-
             const summaryMessage = buildCompletionSummary(
               session, elapsedMs, roundTokens, roundPromptTokens, roundCompletionTokens,
               roundCacheHit, roundCacheMiss, pricingRef.current,
