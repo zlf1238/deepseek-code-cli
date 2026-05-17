@@ -101,6 +101,7 @@ class GitnexusMCPOneShot {
   private nextId = 0;
   private initialized = false;
   private initResolve: (() => void) | null = null;
+  private pendingType: 'tool' | 'resource' = 'tool';
 
   constructor(private projectRoot: string) {}
 
@@ -108,6 +109,7 @@ class GitnexusMCPOneShot {
     return new Promise<string>((resolve, reject) => {
       this.pendingResolve = resolve;
       this.pendingReject = reject;
+      this.pendingType = 'tool';
 
       this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
         cwd: this.projectRoot,
@@ -141,6 +143,55 @@ class GitnexusMCPOneShot {
       this.initResolve = () => {
         // 初始化完成后发送实际工具调用
         this.sendRequest("tools/call", { name, arguments: args });
+      };
+
+      // 第一步：发送 initialize
+      this.sendRequest("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "deepseek-code-cli", version: "1.0.0" }
+      });
+    });
+  }
+
+  async readResource(uri: string): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      this.pendingResolve = resolve;
+      this.pendingReject = reject;
+      this.pendingType = 'resource';
+
+      this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
+        cwd: this.projectRoot,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 60_000
+      });
+
+      let stderrAcc = "";
+      this.proc.stderr?.on("data", (chunk: Buffer) => {
+        stderrAcc += chunk.toString();
+      });
+
+      this.proc.stdout?.on("data", (chunk: Buffer) => {
+        this.buffer += chunk.toString();
+        this.processBuffer();
+      });
+
+      this.proc.on("error", (err) => {
+        reject(new Error(`GitNexus MCP spawn failed: ${err.message}`));
+      });
+
+      this.proc.on("close", (code) => {
+        if (this.pendingReject) {
+          const msg = stderrAcc.trim() || `GitNexus MCP exited with code ${code}`;
+          reject(new Error(msg || "GitNexus MCP closed unexpectedly"));
+        }
+      });
+
+      // 初始化阶段的 Promise 链
+      this.initResolve = () => {
+        // 初始化完成后发送 resources/read
+        this.sendRequest("resources/read", { uri });
       };
 
       // 第一步：发送 initialize
@@ -202,10 +253,15 @@ class GitnexusMCPOneShot {
         this.initResolve?.();
       }
     } else {
-      // 工具调用响应
+      // 工具调用或资源读取响应
       if (msg.result !== undefined && this.pendingResolve) {
-        const output = this.extractToolResult(msg.result);
-        this.pendingResolve(output);
+        if (this.pendingType === 'resource') {
+          const output = this.extractResourceResult(msg.result);
+          this.pendingResolve(output);
+        } else {
+          const output = this.extractToolResult(msg.result);
+          this.pendingResolve(output);
+        }
         this.cleanup();
       }
     }
@@ -234,6 +290,29 @@ class GitnexusMCPOneShot {
     return JSON.stringify(result, null, 2);
   }
 
+  private extractResourceResult(result: unknown): string {
+    if (!result || typeof result !== "object") {
+      return String(result ?? "");
+    }
+    const r = result as Record<string, unknown>;
+
+    // MCP resources/read 响应格式: { contents: [{ type: "text", text: "..." }] }
+    const contents = r.contents;
+    if (Array.isArray(contents)) {
+      const texts = contents
+        .map((item: unknown) => {
+          if (item && typeof item === "object" && (item as { type?: string }).type === "text") {
+            return (item as { text?: string }).text ?? "";
+          }
+          return "";
+        })
+        .filter(Boolean);
+      return texts.join("\n");
+    }
+
+    return JSON.stringify(result, null, 2);
+  }
+
   private cleanup(): void {
     this.pendingResolve = null;
     this.pendingReject = null;
@@ -248,6 +327,33 @@ class GitnexusMCPOneShot {
     }
     this.proc = null;
   }
+}
+
+// ── Repo 名称缓存 ─────────────────────────────────────
+const repoNameCache = new Map<string, string>();
+
+async function getRepoName(projectRoot: string): Promise<string> {
+  const cached = repoNameCache.get(projectRoot);
+  if (cached) return cached;
+
+  const client = new GitnexusMCPOneShot(projectRoot);
+  const raw = await client.callTool("list_repos", {});
+
+  let repos: Array<{ name?: string; path?: string }> = [];
+  try {
+    repos = JSON.parse(raw);
+  } catch {
+    // 如果解析失败，使用目录名作为 repo 名称
+    const fallback = path.basename(projectRoot);
+    repoNameCache.set(projectRoot, fallback);
+    return fallback;
+  }
+
+  const normalizedRoot = path.resolve(projectRoot);
+  const match = repos.find((r) => r.path && path.resolve(r.path) === normalizedRoot);
+  const repoName = match?.name || path.basename(projectRoot);
+  repoNameCache.set(projectRoot, repoName);
+  return repoName;
 }
 
 // ── Token 预算感知截断 (借鉴 RepoMap 的 token_count + max_map_tokens) ─
@@ -304,15 +410,15 @@ export async function handleGitnexusContext(
   args: Record<string, unknown>,
   context: ToolExecutionContext
 ): Promise<ToolExecutionResult> {
-  const symbol = typeof args.symbol === "string" ? args.symbol.trim() : "";
-  if (!symbol) {
-    return { ok: false, name: "gitnexus_context", error: 'Missing required "symbol" string.' };
+  const name = typeof args.name === "string" ? args.name.trim() : "";
+  if (!name) {
+    return { ok: false, name: "gitnexus_context", error: 'Missing required "name" string.' };
   }
 
   return withIndex(context, async () => {
     try {
       const client = new GitnexusMCPOneShot(context.projectRoot);
-      const raw = await client.callTool("context", { symbol });
+      const raw = await client.callTool("context", { name });
       const maxChars = typeof args.max_chars === "number" ? args.max_chars : 6000;
       return {
         ok: true,
@@ -330,14 +436,14 @@ export async function handleGitnexusImpact(
   args: Record<string, unknown>,
   context: ToolExecutionContext
 ): Promise<ToolExecutionResult> {
-  const file = typeof args.file === "string" ? args.file.trim() : "";
-  if (!file) {
-    return { ok: false, name: "gitnexus_impact", error: 'Missing required "file" path.' };
+  const target = typeof args.target === "string" ? args.target.trim() : "";
+  if (!target) {
+    return { ok: false, name: "gitnexus_impact", error: 'Missing required "target" path.' };
   }
 
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = { path: file };
+      const params: Record<string, unknown> = { path: target };
       if (typeof args.symbol === "string" && args.symbol.trim()) {
         params.symbol = args.symbol.trim();
       }
@@ -356,12 +462,15 @@ export async function handleGitnexusClusters(
 ): Promise<ToolExecutionResult> {
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = {};
-      if (typeof args.cluster === "string" && args.cluster.trim()) {
-        params.name = args.cluster.trim();
-      }
+      const repoName = await getRepoName(context.projectRoot);
       const client = new GitnexusMCPOneShot(context.projectRoot);
-      const raw = await client.callTool("clusters", params);
+      let uri: string;
+      if (typeof args.cluster === "string" && args.cluster.trim()) {
+        uri = `gitnexus://repo/${repoName}/cluster/${args.cluster.trim()}`;
+      } else {
+        uri = `gitnexus://repo/${repoName}/clusters`;
+      }
+      const raw = await client.readResource(uri);
       return { ok: true, name: "gitnexus_clusters", output: raw };
     } catch (e) {
       return { ok: false, name: "gitnexus_clusters", error: String(e) };
@@ -375,12 +484,15 @@ export async function handleGitnexusProcesses(
 ): Promise<ToolExecutionResult> {
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = {};
-      if (typeof args.process === "string" && args.process.trim()) {
-        params.name = args.process.trim();
-      }
+      const repoName = await getRepoName(context.projectRoot);
       const client = new GitnexusMCPOneShot(context.projectRoot);
-      const raw = await client.callTool("processes", params);
+      let uri: string;
+      if (typeof args.process === "string" && args.process.trim()) {
+        uri = `gitnexus://repo/${repoName}/process/${args.process.trim()}`;
+      } else {
+        uri = `gitnexus://repo/${repoName}/processes`;
+      }
+      const raw = await client.readResource(uri);
       return { ok: true, name: "gitnexus_processes", output: raw };
     } catch (e) {
       return { ok: false, name: "gitnexus_processes", error: String(e) };

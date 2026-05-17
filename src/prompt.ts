@@ -1219,16 +1219,16 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
       parameters: {
         type: "object",
         properties: {
-          symbol: {
+          name: {
             type: "string",
-            description: "符号名称，如 'validateUser'、'AuthService'"
+            description: "符号名称，如 'SessionManager'、'handleBashTool'"
           },
           max_chars: {
             type: "number",
             description: "返回的最大字符数，默认 6000。"
           }
         },
-        required: ["symbol"],
+        required: ["name"],
         additionalProperties: false
       }
     }
@@ -1244,16 +1244,16 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
       parameters: {
         type: "object",
         properties: {
-          file: {
+          target: {
             type: "string",
-            description: "要检查的文件的绝对路径"
+            description: "要分析的目标文件路径或符号名称"
           },
           symbol: {
             type: "string",
             description: "可选：具体符号名称。不提供则分析文件级影响。"
           }
         },
-        required: ["file"],
+        required: ["target"],
         additionalProperties: false
       }
     }
@@ -1264,7 +1264,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "gitnexus_clusters",
       description:
-        "列出代码库的功能聚类（Leiden 社区检测）及内聚度评分。" +
+        "从 MCP 资源读取代码库的功能聚类（Leiden 社区检测）及内聚度评分。" +
         "用于快速理解陌生代码库的分层结构。",
       parameters: {
         type: "object",
@@ -1292,7 +1292,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
         properties: {
           process: {
             type: "string",
-            description: "可选：指定进程名称获取完整追踪，省略则列出所有进程。"
+            description: "可选：指定进程名称读取特定的进程追踪详情，省略则列出所有进程。"
           }
         },
         required: [],
