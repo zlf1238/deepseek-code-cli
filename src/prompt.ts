@@ -1182,6 +1182,125 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     });
   }
 
+  // GitNexus 知识图谱工具：提供代码库架构理解
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_query",
+      description:
+        "在代码库知识图谱中执行混合搜索（BM25+语义+RRF融合）。" +
+        "用于理解某个符号、函数、模块被谁调用、依赖了什么。" +
+        "首次使用会自动索引代码库。",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "搜索查询，如 'auth validateUser' 或 'payment flow'"
+          },
+          max_chars: {
+            type: "number",
+            description: "返回的最大字符数，默认 8000。控制上下文窗口占用。"
+          }
+        },
+        required: ["query"],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_context",
+      description:
+        "获取单个符号的 360 度视图：所有引用者、被引用者、参与的进程。" +
+        "用于理解某个函数/类的完整代码上下文。",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            description: "符号名称，如 'validateUser'、'AuthService'"
+          },
+          max_chars: {
+            type: "number",
+            description: "返回的最大字符数，默认 6000。"
+          }
+        },
+        required: ["symbol"],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_impact",
+      description:
+        "变更前分析影响面：修改某个文件/符号会影响哪些进程和其他文件。" +
+        "在代码审查或重构前使用，防止遗漏副作用。",
+      parameters: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            description: "要检查的文件的绝对路径"
+          },
+          symbol: {
+            type: "string",
+            description: "可选：具体符号名称。不提供则分析文件级影响。"
+          }
+        },
+        required: ["file"],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_clusters",
+      description:
+        "列出代码库的功能聚类（Leiden 社区检测）及内聚度评分。" +
+        "用于快速理解陌生代码库的分层结构。",
+      parameters: {
+        type: "object",
+        properties: {
+          cluster: {
+            type: "string",
+            description: "可选：指定聚类名称获取成员详情，省略则列出所有聚类。"
+          }
+        },
+        required: [],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_processes",
+      description:
+        "列出或追踪代码库的执行流：函数调用链、事件传播路径。" +
+        "调试或理解端到端业务逻辑时使用。",
+      parameters: {
+        type: "object",
+        properties: {
+          process: {
+            type: "string",
+            description: "可选：指定进程名称获取完整追踪，省略则列出所有进程。"
+          }
+        },
+        required: [],
+        additionalProperties: false
+      }
+    }
+  });
+
   return tools;
 }
 

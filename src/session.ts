@@ -261,6 +261,10 @@ export class SessionManager {
     this.onSessionEntryUpdated = options.onSessionEntryUpdated;
     this.onLlmStreamProgress = options.onLlmStreamProgress;
     this.toolExecutor = new ToolExecutor(this.projectRoot, this.createOpenAIClient);
+    // 借鉴 RepoMap: 会话启动时后台异步索引代码库知识图谱
+    import("./tools/gitnexus-handler").then(({ ensureGitnexusIndexAsync }) => {
+      ensureGitnexusIndexAsync(this.projectRoot);
+    }).catch(() => { /* 静默失败 */ });
   }
 
   private estimateStreamTokens(text: string): number {

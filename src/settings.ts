@@ -52,6 +52,15 @@ export type RTKSettings = {
 /** 模型使用模式：pro = 仅用 Pro，flash = 仅用 Flash，auto = 双向自动切换。 */
 export type ModelMode = "pro" | "flash" | "auto";
 
+export type GitnexusConfig = {
+  /** 是否启用 GitNexus 知识图谱集成（默认 true） */
+  enabled?: boolean;
+  /** 会话启动时自动索引（默认 true） */
+  autoIndex?: boolean;
+  /** 索引过期时间（分钟），默认 30 */
+  maxIndexAgeMinutes?: number;
+};
+
 export type DeepcodingSettings = {
   /** 模型模式，优先级高于 env.MODEL + autoSwitch 组合配置。 */
   mode?: ModelMode;
@@ -64,6 +73,7 @@ export type DeepcodingSettings = {
   pricing?: PricingConfig;
   autoSwitch?: AutoSwitchConfig;
   rtk?: RTKSettings;
+  gitnexus?: GitnexusConfig;
 };
 
 export type ResolvedAutoSwitchConfig = {

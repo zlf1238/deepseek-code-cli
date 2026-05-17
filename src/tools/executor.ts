@@ -21,6 +21,20 @@ import { handleGetFileInfoTool } from "./get-file-info-handler";
 import { handleHandleReadTool } from "./handle-read-handler";
 import { handleRetrieveToolResultTool } from "./retrieve-tool-result-handler";
 import { handleCodeExecutorTool } from "./code-executor";
+import {
+  handleGitnexusQuery,
+  handleGitnexusContext,
+  handleGitnexusImpact,
+  handleGitnexusClusters,
+  handleGitnexusProcesses,
+} from "./gitnexus-handler";
+import {
+  handleGitnexusQuery,
+  handleGitnexusContext,
+  handleGitnexusImpact,
+  handleGitnexusClusters,
+  handleGitnexusProcesses,
+} from "./gitnexus-handler";
 
 export type CreateOpenAIClient = (overrideModel?: string) => {
   client: OpenAI | null;
@@ -106,6 +120,8 @@ export class ToolExecutor {
     "list_jobs", "job_output",
     "handle_read", "retrieve_tool_result",
     "spawn_code_executor",
+    "gitnexus_query", "gitnexus_context", "gitnexus_impact",
+    "gitnexus_clusters", "gitnexus_processes",
   ]);
 
   /** 借鉴 Reasonix: 并行最大分块数。可通过 REASONIX_PARALLEL_MAX 环境变量覆写。 */
@@ -205,6 +221,11 @@ export class ToolExecutor {
     this.toolHandlers.set("handle_read", handleHandleReadTool);
     this.toolHandlers.set("retrieve_tool_result", handleRetrieveToolResultTool);
     this.toolHandlers.set("spawn_code_executor", handleCodeExecutorTool);
+    this.toolHandlers.set("gitnexus_query", handleGitnexusQuery);
+    this.toolHandlers.set("gitnexus_context", handleGitnexusContext);
+    this.toolHandlers.set("gitnexus_impact", handleGitnexusImpact);
+    this.toolHandlers.set("gitnexus_clusters", handleGitnexusClusters);
+    this.toolHandlers.set("gitnexus_processes", handleGitnexusProcesses);
   }
 
   private parseToolCall(toolCall: unknown): ToolCall | null {
