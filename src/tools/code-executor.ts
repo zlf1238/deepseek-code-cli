@@ -40,8 +40,35 @@ Rules:
 
 You have NO conversation context — only the file content and the task instruction.`;
 
-/** 子智能体最大迭代次数 */
-const MAX_ITERS = 8;
+/** Explorer 子智能体的系统提示词 —— 代码库导航式探索，GitNexus 优先 */
+export const EXPLORER_SYSTEM = `You are an Explorer sub-agent. Your job: investigate the codebase and return one distilled answer.
+
+## Priority: Navigate with GitNexus, don't blind-search
+1. gitnexus_clusters — understand module layering first
+2. gitnexus_query — hybrid search for symbols/concepts in one call
+3. gitnexus_context — 360° view of a symbol (callers, callees, processes)
+4. gitnexus_impact — blast-radius analysis before changes
+5. gitnexus_processes — trace end-to-end execution flows
+Only use read_file + grep to verify specific lines GitNexus pointed at.
+
+## Pitfall prevention
+- search_files matches file NAMES only — NOT for "find callers of X"
+- Don't read_file the same file multiple times — read enough range once
+- GitNexus tools answer 80% of questions without reading files
+
+## Stop early
+The parent doesn't see your tool calls — over-exploration is pure waste.
+Stop as soon as you can answer. Then deliver.
+
+## Output format
+- Lead with the conclusion (one paragraph or short bullets)
+- Cite file:line evidence
+- If the answer can't be found, say so + suggest next direction
+- No follow-up offers, no "let me know if you need more"
+- Do NOT expand scope beyond the parent's task`;
+
+/** 子智能体最大迭代次数（12 轮：2-5 个相关文件修改有余量，避免 8 轮短板） */
+const MAX_ITERS = 12;
 
 /** 子智能体的工具定义（默认 read_file + edit_file + write_file，可通过 allowedTools 扩展） */
 function getSubagentTools(allowedTools?: string[]) {
@@ -108,6 +135,198 @@ function getSubagentTools(allowedTools?: string[]) {
           include: { type: "string" as const, description: "文件扩展名过滤，如 \"*.ts\"。" },
         },
         required: ["pattern"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("glob")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "glob",
+      description: "查找匹配 glob 模式的文件。返回匹配文件路径的列表。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          pattern: { type: "string" as const, description: "用于匹配文件名的 glob 模式。" },
+          path: { type: "string" as const, description: "要搜索的目录，默认为项目根目录。" },
+        },
+        required: ["pattern"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("bash")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "bash",
+      description: "在持久化的 bash 会话中执行 shell 命令。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          command: { type: "string" as const, description: "要执行的 shell 命令" },
+          description: { type: "string" as const, description: "用主动语态描述此命令的作用。" },
+        },
+        required: ["command"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("web_search")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "web_search",
+      description: "使用自然语言查询执行网络搜索。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: { type: "string" as const, description: "搜索查询。" },
+        },
+        required: ["query"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("web_fetch")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "web_fetch",
+      description: "通过 HTTP 抓取 URL 的文本内容。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          url: { type: "string" as const, description: "要抓取的 URL。" },
+          maxChars: { type: "number" as const, description: "返回的最大字符数，默认 10000。" },
+        },
+        required: ["url"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("directory_tree")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "directory_tree",
+      description: "以树形结构列出目录内容。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          path: { type: "string" as const, description: "要列出的目录路径，默认为项目根目录。" },
+          maxDepth: { type: "number" as const, description: "最大递归深度，默认为 3。" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("search_files")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "search_files",
+      description: "按文件名模式搜索文件。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          pattern: { type: "string" as const, description: "文件名中要匹配的文本。" },
+          path: { type: "string" as const, description: "搜索起始目录，默认为项目根目录。" },
+          caseSensitive: { type: "boolean" as const, description: "是否区分大小写，默认 false。" },
+        },
+        required: ["pattern"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("get_file_info")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "get_file_info",
+      description: "获取文件或目录的元信息。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          file_path: { type: "string" as const, description: "文件或目录的绝对路径。" },
+        },
+        required: ["file_path"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("gitnexus_query")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "gitnexus_query",
+      description: "在代码库知识图谱中执行混合搜索（BM25+语义+RRF融合）。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: { type: "string" as const, description: "搜索查询。" },
+          max_chars: { type: "number" as const, description: "返回的最大字符数，默认 8000。" },
+        },
+        required: ["query"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("gitnexus_context")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "gitnexus_context",
+      description: "获取单个符号的 360 度视图：所有引用者、被引用者、参与的进程。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          name: { type: "string" as const, description: "符号名称。" },
+          max_chars: { type: "number" as const, description: "返回的最大字符数，默认 6000。" },
+        },
+        required: ["name"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("gitnexus_impact")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "gitnexus_impact",
+      description: "变更前分析影响面：修改某个文件/符号会影响哪些进程和其他文件。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          target: { type: "string" as const, description: "要分析的目标文件路径或符号名称。" },
+          symbol: { type: "string" as const, description: "可选：具体符号名称。" },
+        },
+        required: ["target"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("gitnexus_clusters")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "gitnexus_clusters",
+      description: "从 MCP 资源读取代码库的功能聚类（Leiden 社区检测）及内聚度评分。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          cluster: { type: "string" as const, description: "可选：指定聚类名称获取成员详情。" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("gitnexus_processes")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "gitnexus_processes",
+      description: "列出或追踪代码库的执行流：函数调用链、事件传播路径。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          process: { type: "string" as const, description: "可选：指定进程名称读取特定的进程追踪详情。" },
+        },
+        required: [],
+        additionalProperties: false,
       },
     },
   });
@@ -479,4 +698,229 @@ export async function handleCodeExecutorTool(
       subagentElapsedMs: elapsedMs,
     },
   };
+}
+
+/** 技能子智能体 —— 在隔离的 Flash 子智能体中执行 Skill 任务。
+ *  与 handleCodeExecutorTool 不同：不要求 file_paths，使用传入的 systemPrompt，
+ *  默认更多迭代（20 次），通过 ToolExecutor 支持全部工具。 */
+export async function runSkillSubagent(
+  context: ToolExecutionContext,
+  systemPrompt: string,
+  task: string,
+  model?: string,
+  allowedToolNames?: string[],
+  maxIters?: number,
+): Promise<ToolExecutionResult> {
+  // ── 1. 默认值 ──
+  const resolvedModel = model ?? "deepseek-v4-flash";
+  const resolvedMaxIters = maxIters ?? 20;
+  const resolvedAllowedTools = allowedToolNames ?? [
+    "read_file", "grep", "glob", "gitnexus_query", "gitnexus_context",
+    "gitnexus_impact", "gitnexus_clusters", "gitnexus_processes",
+    "get_file_info", "directory_tree", "search_files",
+    "web_search", "web_fetch", "bash",
+  ];
+
+  // ── 2. 获取 Flash client ──
+  const modelInfo = context.createOpenAIClient?.(resolvedModel);
+  const defaultInfo = context.createOpenAIClient?.();
+  const client: OpenAI | null =
+    modelInfo?.client ?? defaultInfo?.client ?? null;
+  const actualModel = modelInfo?.client
+    ? (modelInfo.model ?? resolvedModel)
+    : (defaultInfo?.model ?? resolvedModel);
+  const baseURL = modelInfo?.baseURL ?? defaultInfo?.baseURL;
+  const pricing = modelInfo?.pricing ?? defaultInfo?.pricing;
+  const thinkingEnabled = true;
+  const reasoningEffort: "high" | "max" = "high";
+
+  if (!client) {
+    return {
+      ok: false,
+      name: "SkillLoad",
+      error: "No API client available for skill sub-agent.",
+      metadata: { failureCode: "NO_CLIENT" as SubagentFailureCode },
+    };
+  }
+
+  // ── 3. 构建子智能体消息 ──
+  const messages: Array<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string;
+    tool_calls?: unknown[];
+    tool_call_id?: string;
+    reasoning_content?: string;
+  }> = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: "Execute the skill task: " + task },
+  ];
+
+  // ── 4. 子智能体主循环 ──
+  const startedAt = Date.now();
+  let toolIters = 0;
+  let totalUsage: Record<string, number> = {};
+  const thinkingOptions = buildThinkingRequestOptions(
+    thinkingEnabled,
+    baseURL,
+    reasoningEffort,
+  );
+
+  // 动态导入 ToolExecutor 避免循环依赖（executor.ts 已导入本文件）
+  const { ToolExecutor } = await import("./executor");
+  const toolExecutor = new ToolExecutor(context.projectRoot, context.createOpenAIClient);
+
+  for (let iter = 0; iter < resolvedMaxIters; iter++) {
+    // API 调用
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = (await client.chat.completions.create({
+        model: actualModel,
+        messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        tools: getSubagentTools(resolvedAllowedTools) as OpenAI.Chat.Completions.ChatCompletionTool[],
+        ...thinkingOptions,
+      })) as OpenAI.Chat.Completions.ChatCompletion;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const costUsd = calculateSubagentCost(totalUsage, pricing);
+      return {
+        ok: false,
+        name: "SkillLoad",
+        error: `Skill sub-agent API call failed: ${msg}`,
+        metadata: {
+          failureCode: "API_ERROR" as SubagentFailureCode,
+          subagentModel: actualModel,
+          subagentUsage: totalUsage,
+          subagentCostUsd: costUsd,
+          subagentElapsedMs: Date.now() - startedAt,
+        },
+      };
+    }
+
+    totalUsage = accumulateUsage(totalUsage, response.usage);
+
+    const choice = response.choices?.[0];
+    const message = choice?.message;
+    const content = (message as { content?: string | null } | undefined)?.content ?? "";
+    const toolCalls =
+      (message as { tool_calls?: unknown[] } | undefined)?.tool_calls ?? null;
+    const reasoningContent =
+      (message as { reasoning_content?: string } | undefined)?.reasoning_content ?? undefined;
+
+    // 无工具调用 → 完成任务
+    if (!toolCalls || toolCalls.length === 0) {
+      const elapsedMs = Date.now() - startedAt;
+      const costUsd = calculateSubagentCost(totalUsage, pricing);
+      return {
+        ok: true,
+        name: "SkillLoad",
+        output: JSON.stringify({
+          success: true,
+          output: content || "[skill sub-agent completed without output]",
+          turns: iter + 1,
+          tool_iters: toolIters,
+          elapsed_ms: elapsedMs,
+          cost_usd: Number(costUsd.toFixed(6)),
+        }),
+        metadata: {
+          subagentModel: actualModel,
+          subagentUsage: totalUsage,
+          subagentCostUsd: costUsd,
+          subagentElapsedMs: elapsedMs,
+        },
+      };
+    }
+
+    toolIters += toolCalls.length;
+
+    // 追加 assistant 消息（含 tool calls，回传 reasoning_content）
+    const assistantMsg: {
+      role: "assistant";
+      content: string;
+      tool_calls?: unknown[];
+      reasoning_content?: string;
+    } = {
+      role: "assistant",
+      content: content ?? "",
+      tool_calls: toolCalls,
+    };
+    if (reasoningContent) {
+      assistantMsg.reasoning_content = reasoningContent;
+    }
+    messages.push(assistantMsg);
+
+    // 通过 ToolExecutor 执行所有工具调用（支持全部工具）
+    const toolCallResults = await toolExecutor.executeToolCalls(
+      context.sessionId,
+      toolCalls,
+    );
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = (toolCalls as Array<{ id?: string }>)[i];
+      const execResult = toolCallResults[i];
+      const toolContent = JSON.stringify({
+        ok: execResult.result.ok,
+        name: execResult.result.name,
+        output: execResult.result.output,
+        error: execResult.result.error,
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: tc.id ?? "",
+        content: toolContent,
+      });
+    }
+  }
+
+  // ── 5. 超出迭代上限 ──
+  const elapsedMs = Date.now() - startedAt;
+  const costUsd = calculateSubagentCost(totalUsage, pricing);
+  return {
+    ok: false,
+    name: "SkillLoad",
+    error: `Skill sub-agent exceeded maximum ${resolvedMaxIters} iterations without completing the task.`,
+    metadata: {
+      failureCode: "TIMEOUT" as SubagentFailureCode,
+      subagentModel: actualModel,
+      subagentUsage: totalUsage,
+      subagentCostUsd: costUsd,
+      subagentElapsedMs: elapsedMs,
+    },
+  };
+}
+
+/** spawn_explorer 工具 handler —— 委派 Flash Explorer 子智能体探索代码库。
+ *  与 spawn_code_executor 不同：不要求 file_paths，默认使用只读+GitNexus 工具集，
+ *  迭代上限 20，system prompt 为 EXPLORER_SYSTEM。 */
+export async function handleSpawnExplorerTool(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+): Promise<ToolExecutionResult> {
+  const task = typeof args.task === "string" ? args.task.trim() : "";
+  if (!task) {
+    return {
+      ok: false,
+      name: "spawn_explorer",
+      error: "Missing required 'task' argument.",
+      metadata: { failureCode: "AMBIGUOUS" as SubagentFailureCode },
+    };
+  }
+  const extraContext = typeof args.context === "string" ? args.context.trim() : "";
+  const fullTask = extraContext ? `${task}\n\nAdditional context: ${extraContext}` : task;
+  const model = typeof args.model === "string" ? args.model : undefined;
+  const maxIters = typeof args.max_iters === "number" ? args.max_iters as number : 20;
+
+  let allowedTools: string[] | undefined;
+  if (Array.isArray(args.allowed_tools)) {
+    allowedTools = (args.allowed_tools as string[]).filter((t) => typeof t === "string");
+  }
+
+  const result = await runSkillSubagent(
+    context,
+    EXPLORER_SYSTEM,
+    fullTask,
+    model,
+    allowedTools,
+    maxIters,
+  );
+  return { ...result, name: "spawn_explorer" };
 }

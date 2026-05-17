@@ -1,6 +1,7 @@
 ---
 name: review
-description: 审查当前分支的变更——以 diff 为基础，标记正确性、安全性、测试缺失、隐藏行为变化等问题。inline 模式，只读操作。
+description: 审查当前分支的变更——以 diff 为基础，标记正确性、安全性、测试缺失、隐藏行为变化等问题。只读操作。
+runAs: subagent
 ---
 
 # Review Skill

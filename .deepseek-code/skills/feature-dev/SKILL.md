@@ -1,6 +1,7 @@
 ---
 name: feature-dev
 description: 在 deepseek-code-cli 中开发新功能时遵循的规范、架构约束和最佳实践。适用于从头实现新功能或在现有模块上扩展。
+runAs: inline
 ---
 
 # Feature Development — deepseek-code-cli

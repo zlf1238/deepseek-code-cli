@@ -20,14 +20,7 @@ import { handleSearchFilesTool } from "./search-files-handler";
 import { handleGetFileInfoTool } from "./get-file-info-handler";
 import { handleHandleReadTool } from "./handle-read-handler";
 import { handleRetrieveToolResultTool } from "./retrieve-tool-result-handler";
-import { handleCodeExecutorTool } from "./code-executor";
-import {
-  handleGitnexusQuery,
-  handleGitnexusContext,
-  handleGitnexusImpact,
-  handleGitnexusClusters,
-  handleGitnexusProcesses,
-} from "./gitnexus-handler";
+import { handleCodeExecutorTool, handleSpawnExplorerTool } from "./code-executor";
 import {
   handleGitnexusQuery,
   handleGitnexusContext,
@@ -119,7 +112,7 @@ export class ToolExecutor {
     "get_file_info", "web_fetch", "WebSearch", "SkillLoad",
     "list_jobs", "job_output",
     "handle_read", "retrieve_tool_result",
-    "spawn_code_executor",
+    "spawn_code_executor", "spawn_explorer",
     "gitnexus_query", "gitnexus_context", "gitnexus_impact",
     "gitnexus_clusters", "gitnexus_processes",
   ]);
@@ -221,6 +214,7 @@ export class ToolExecutor {
     this.toolHandlers.set("handle_read", handleHandleReadTool);
     this.toolHandlers.set("retrieve_tool_result", handleRetrieveToolResultTool);
     this.toolHandlers.set("spawn_code_executor", handleCodeExecutorTool);
+    this.toolHandlers.set("spawn_explorer", handleSpawnExplorerTool);
     this.toolHandlers.set("gitnexus_query", handleGitnexusQuery);
     this.toolHandlers.set("gitnexus_context", handleGitnexusContext);
     this.toolHandlers.set("gitnexus_impact", handleGitnexusImpact);

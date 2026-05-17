@@ -1,7 +1,10 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import matter from "gray-matter";
 import type { ToolExecutionContext, ToolExecutionResult, ToolExecutionFollowUpMessage } from "./executor";
+import { runSkillSubagent } from "./code-executor";
+import { EXPLORER_SYSTEM } from "./code-executor";
 
 export async function handleSkillLoadTool(
   args: Record<string, unknown>,
@@ -39,6 +42,15 @@ export async function handleSkillLoadTool(
   }
 
   if (!body || !skillPath) {
+    // ── 内置 explore skill 回退 ──
+    if (name === "explore") {
+      const result = await runSkillSubagent(
+        context,
+        EXPLORER_SYSTEM,
+        `Execute the "explore" skill on the current project.`,
+      );
+      return { ...result, name: "SkillLoad" };
+    }
     // Build available names list for a helpful error
     const availableNames = collectAvailableSkillNames(context.projectRoot);
     return {
@@ -48,6 +60,34 @@ export async function handleSkillLoadTool(
     };
   }
 
+  // ── 解析 frontmatter 决定 runAs 模式 ──
+  const parsed = matter(body);
+  const frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
+  const runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
+  const skillContent = parsed.content;
+
+  // ── Subagent 模式：委派给 Flash 子智能体执行 ──
+  if (runAs === "subagent") {
+    const allowedTools = Array.isArray(frontmatter["allowed-tools"])
+      ? (frontmatter["allowed-tools"] as string[])
+      : undefined;
+    const model = typeof frontmatter.model === "string" ? frontmatter.model : undefined;
+    const maxToolIters = typeof frontmatter["max-tool-iters"] === "number"
+      ? (frontmatter["max-tool-iters"] as number)
+      : undefined;
+
+    const result = await runSkillSubagent(
+      context,
+      skillContent,
+      `Execute the "${name}" skill on the current project.`,
+      model,
+      allowedTools,
+      maxToolIters,
+    );
+    return { ...result, name: "SkillLoad" };
+  }
+
+  // ── Inline 模式（默认）：正文注入当前会话 ──
   const followUpMessages: ToolExecutionFollowUpMessage[] = [
     {
       role: "system",

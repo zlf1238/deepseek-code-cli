@@ -218,6 +218,8 @@ export type SkillInfo = {
   path: string;
   description: string;
   isLoaded?: boolean;
+  /** 执行模式：inline（正文注入当前会话）或 subagent（隔离 Flash 子智能体） */
+  runAs?: "inline" | "subagent";
 };
 
 type SessionManagerOptions = {
@@ -662,6 +664,10 @@ The candidate skills are as follows:\n\n`;
     try {
       const skillMd = fs.readFileSync(skillPath, "utf8");
       const parsed = matter(skillMd);
+      const runAsRaw = parsed.data.runAs;
+      const runAs = (runAsRaw === "subagent" || runAsRaw === "inline")
+        ? runAsRaw as "inline" | "subagent"
+        : "inline";
       return {
         name:
           typeof parsed.data.name === "string" && parsed.data.name.trim()
@@ -672,6 +678,7 @@ The candidate skills are as follows:\n\n`;
           typeof parsed.data.description === "string"
             ? parsed.data.description.trim()
             : "",
+        runAs,
       };
     } catch {
       return fallbackSkill;
@@ -1931,8 +1938,9 @@ The candidate skills are as follows:\n\n`;
       // 2. 执行这一个 tool call
       const toolName = getName(rawTc);
 
-      // spawn_code_executor 开始通知（UI 可见，不进入 API 历史）
-      if (toolName === "spawn_code_executor") {
+      // spawn_code_executor / spawn_explorer 开始通知（UI 可见，不进入 API 历史）
+      if (toolName === "spawn_code_executor" || toolName === "spawn_explorer") {
+        const label = toolName === "spawn_explorer" ? "[Explorer]" : "[委派执行]";
         const taskParam = (rawTc as { function?: { arguments?: string } })?.function?.arguments;
         let taskPreview = "";
         try {
@@ -1945,7 +1953,7 @@ The candidate skills are as follows:\n\n`;
         this.onAssistantMessage(
           this.buildAssistantMessage(
             sessionId,
-            `[委派执行] Flash 子智能体工作中…${taskPreview ? ` ${taskPreview}` : ""}`,
+            `${label} Flash 子智能体工作中…${taskPreview ? ` ${taskPreview}` : ""}`,
             null
           ),
           false
@@ -1968,10 +1976,11 @@ The candidate skills are as follows:\n\n`;
 
       // 合并子智能体 usage 到 session 的 usageByModel
       if (
-        execution.result.name === "spawn_code_executor" &&
+        (execution.result.name === "spawn_code_executor" ||
+         execution.result.name === "spawn_explorer") &&
         execution.result.metadata?.subagentUsage
       ) {
-        const meta = execution.result.metadata;
+        const meta = execution.result.metadata!;
         const sUsage = meta.subagentUsage as Record<string, number>;
         const sModel = (meta.subagentModel as string) ?? "deepseek-v4-flash";
         const sCostUsd = typeof meta.subagentCostUsd === "number" ? meta.subagentCostUsd : 0;
@@ -1991,6 +2000,7 @@ The candidate skills are as follows:\n\n`;
         });
 
         // 子智能体完成 UI 通知
+        const label = execution.result.name === "spawn_explorer" ? "[Explorer]" : "[委派执行]";
         const elapsed = sElapsedMs >= 60000
           ? `${Math.floor(sElapsedMs / 60000)}m${Math.round((sElapsedMs % 60000) / 1000)}s`
           : `${(sElapsedMs / 1000).toFixed(1)}s`;
@@ -2028,12 +2038,15 @@ The candidate skills are as follows:\n\n`;
         this.onAssistantMessage(
           this.buildAssistantMessage(
             sessionId,
-            `[委派执行] ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}${savingsStr}`,
+            `${label} ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}${savingsStr}`,
             null
           ),
           false
         );
-      } else if (execution.result.name === "spawn_code_executor" && !execution.result.ok) {
+      } else if (
+        (execution.result.name === "spawn_code_executor" || execution.result.name === "spawn_explorer") &&
+        !execution.result.ok
+      ) {
         // 子智能体失败通知：展示失败码
         const meta = execution.result.metadata;
         const failureCode = (meta?.failureCode as string) ?? "API_ERROR";

@@ -1,6 +1,7 @@
 ---
 name: test
-description: 运行项目测试套件，诊断失败，提出修复方案并重跑直到通过。inline 模式——在父循环中运行，每一步都可审查。
+description: 运行项目测试套件，诊断失败，提出修复方案并重跑直到通过。子智能体模式——在隔离的 Flash 子智能体中运行测试，诊断并报告失败。
+runAs: subagent
 ---
 
 # Test Skill

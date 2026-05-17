@@ -1,6 +1,7 @@
 ---
 name: refactor
 description: 对 deepseek-code-cli 进行代码重构时的指导原则和策略。聚焦于在不改变外部行为的前提下改善代码结构、可维护性和性能。
+runAs: subagent
 ---
 
 # Refactoring — deepseek-code-cli

@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: 对 deepseek-code-cli 项目进行代码审查时的检查清单和重点关注领域。确保代码符合项目约定、类型安全、性能合理且测试充分。
+runAs: subagent
 ---
 
 # Code Review — deepseek-code-cli

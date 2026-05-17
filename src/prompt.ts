@@ -285,29 +285,59 @@ export function getSystemPrompt(projectRoot: string, options: PromptToolOptions 
     ? `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolDocs}`
     : SYSTEM_PROMPT_BASE;
   const skillsIndex = getSkillsIndex(projectRoot);
-  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}\n\n${getRuntimeContext(projectRoot)}`;
+  const supervisorExplorer = options.supervisorMode ? `\n\n${EXPLORER_GUIDANCE}` : "";
+  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}${supervisorExplorer}\n\n${getRuntimeContext(projectRoot)}`;
 }
 
 /** Supervisor-Worker 架构的行为指南，嵌入 system prompt。 */
 const CODE_EXECUTOR_GUIDANCE = `# Code modification strategy (Supervisor-Worker mode)
 
-**Hard constraint:** You MUST delegate all multi-file or multi-edit changes. Never make more than one edit_file call in a single turn. Use spawn_code_executor for everything beyond a single, one-file, one-edit change.
+**Hard constraint:** You MUST delegate all multi-file or multi-edit changes. Never make more than one edit_file call in a single turn.
 
-You are the Supervisor. Your Pro context is always hot (cached). Use spawn_code_executor to delegate code modifications to a Flash sub-agent:
+## Decision tree: edit directly or delegate?
 
-1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction. If the task references external types, functions, or imports, you MUST capture their definitions and pass them via the context field.
-2. **Judge complexity.**
-   - Single-file, single-edit, trivial change (spelling, rename, one-line fix) → use edit_file directly.
-   - Multiple edits on one file, OR changes spanning multiple files → MUST call spawn_code_executor with all file paths in file_paths. Do NOT chain multiple edit_file calls yourself.
-3. **Write precise instructions.** The sub-agent has NO conversation context — it only sees the file content and your instruction. Specify exactly what to change and how.
-   **Before every edit_file call, verify:** Is this the ONLY edit needed? Does it touch only ONE file? If either answer is No — spawn_code_executor instead.
-4. **Provide required context.** If the modification involves types, function signatures, or imports defined in other files, you MUST include them in the context parameter. Otherwise the sub-agent cannot complete the task.
-5. **Ask before risky changes.** For cross-file refactors, deletions >10 lines, or changes to critical modules, call AskUserQuestion first to show the plan and get user approval before spawn_code_executor. For routine single-file edits, skip confirmation and spawn directly.
-6. **Verify after delegation.** When the sub-agent returns:
+| Scope | Action |
+|---|---|
+| 1 file, 1-2 lines (spelling, rename) | edit_file directly |
+| 1 file, 3-20 lines | spawn_code_executor (1 file_path) |
+| 2-5 files, independent changes | spawn_code_executor × N in parallel (1 Fixer per 1-2 files) |
+| 3-5 files, need code understanding first | spawn_explorer → review → spawn_code_executor |
+| 6+ files, cross-module refactor | Phase 1: 2-3× spawn_explorer parallel; Phase 2: review; Phase 3: spawn_code_executor × N parallel |
+| Structural question (find callers, trace paths) | spawn_explorer — do NOT grep+read 5+ files yourself |
+
+Each Fixer (spawn_code_executor) has 12 tool-call iterations. Split work so each Fixer handles 1-3 files max — don't cram 8 files into one Fixer.
+
+## Workflow
+
+1. **Read before you delegate.** Use read_file to get enough context to write a precise instruction. Capture external type definitions and pass them via the context field.
+2. **Split large tasks.** For changes spanning >3 files, delegate multiple parallel Fixers, each with 1-2 file_paths. Cross-file consistency is YOUR job — review the results.
+3. **Write precise instructions.** The sub-agent has NO conversation context — only file content + your instruction. Specify exactly what to change and how.
+4. **Provide required context.** Include type signatures, import paths, and caller examples the sub-agent needs.
+5. **Ask before risky changes.** Cross-file refactors, deletions >10 lines, critical modules → AskUserQuestion first.
+6. **Verify after delegation.**
    - Success → verify cross-file changes with read_file; trust single-file changes.
-   - Failure → read the failureCode: NOT_FOUND/AMBIGUOUS → re-read and re-delegate with better context. API_ERROR → retry once. TIMEOUT/SCOPE_EXCEEDED → fix directly yourself.
+   - Failure → read failureCode: NOT_FOUND/AMBIGUOUS → re-read and re-delegate. API_ERROR → retry once. TIMEOUT/SCOPE_EXCEEDED → split into smaller Fixers.
 
 When \`spawn_code_executor\` is NOT available, perform all edits directly as usual.`;
+
+/** Supervisor explorer delegation guidance — built-in explorer skill info added to skills index */
+const EXPLORER_GUIDANCE = `# Exploration strategy (Explorer delegation)
+
+**Before exploring unfamiliar code yourself, delegate to Flash Explorer first.**
+
+Use \`spawn_explorer\` for:
+1. "Find all callers / references of X" — one Explorer call vs 5-8 grep+read rounds
+2. "How does this module work" — Explorer maps territory with GitNexus
+3. "What would break if I change this" — gitnexus_impact analysis
+4. "Trace the error path" — gitnexus_processes traversal
+5. "Understand project layering" — gitnexus_clusters overview
+
+**Workflow:**
+- Delegate 2-3 Explorers in parallel for independent questions
+- After results, read only 1-2 most relevant files to confirm, then decide
+- If incomplete, re-delegate with a tighter question
+
+Do NOT read 5+ files yourself to answer a structural question — delegate it.`;
 
 export function getCompactPrompt(sessionMessages: SessionMessage[]): string {
   const jsonl = sessionMessages
@@ -347,7 +377,8 @@ const SKILLS_INDEX_MAX_CHARS = 4000;
 
 function getSkillsIndex(projectRoot: string): string {
   const skills = collectAllSkills(projectRoot);
-  if (skills.length === 0) return "";
+  // 内置 Explorer skill
+  skills.push({ name: "explore", path: "(builtin)", description: "以 Flash 子智能体探索代码库——GitNexus 导航式搜索，只返回精炼结论。 [Flash subagent]" });
 
   const lines = skills
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -407,9 +438,11 @@ function collectAllSkills(projectRoot: string): SkillInfo[] {
       const nameFromMd = firstLine.startsWith("# ") ? firstLine.slice(2).trim() : skillName;
       const descMatch = raw.match(/description:\s*(.+)/);
       const desc = descMatch ? descMatch[1]!.trim() : "";
+      const runAsMatch = raw.match(/runAs:\s*(.+)/);
+      const runAsTag = runAsMatch && runAsMatch[1]!.trim() === "subagent" ? " [Flash subagent]" : "";
       const displayPath = `${displayRoot}/${skillName}/SKILL.md`;
       if (!byName.has(nameFromMd)) {
-        byName.set(nameFromMd, { name: nameFromMd, path: displayPath, description: desc });
+        byName.set(nameFromMd, { name: nameFromMd, path: displayPath, description: desc + runAsTag });
       }
     }
   }
@@ -724,7 +757,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "SkillLoad",
       description:
-        "按需加载 Skill 的完整正文。系统提示词中的 Available Skills 仅列出名称和描述——如果确定某个 skill 对当前任务有帮助，调用此工具获取其完整指令。Skill 正文将作为上下文注入当前会话，后续轮次无需重复加载。",
+        "按需加载 Skill。标注 [Flash subagent] 的 skill 在隔离的 Flash 子智能体中执行，只返回结论，不污染上下文。未标注的 skill 正文注入当前会话供你亲自执行。",
       parameters: {
         type: "object",
         properties: {
@@ -1176,6 +1209,48 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
             },
           },
           required: ["task", "file_paths"],
+          additionalProperties: false,
+        },
+      },
+    });
+  }
+
+  // Explorer 子智能体工具：委派 Flash 探索代码库（只读，GitNexus 优先）
+  if (_options.supervisorMode) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "spawn_explorer",
+        description:
+          "将代码库探索任务委派给 Flash Explorer 子智能体。Explorer 拥有 GitNexus 知识图谱工具，" +
+          "能导航式理解代码结构、追踪符号引用、分析变更影响。只返回精炼结论，不污染主会话。" +
+          "使用时机：理解陌生代码、找到所有调用点、评估改动影响面、追踪错误传播路径。",
+        parameters: {
+          type: "object",
+          properties: {
+            task: {
+              type: "string",
+              description: "精确的探索任务。如'找出所有调用 addMessage 的地方'。",
+            },
+            context: {
+              type: "string",
+              description: "可选：额外上下文。",
+            },
+            model: {
+              type: "string",
+              description: "可选：子智能体模型，默认 deepseek-v4-flash。",
+            },
+            max_iters: {
+              type: "number",
+              description: "可选：最大迭代次数，默认 20，上限 32。",
+            },
+            allowed_tools: {
+              type: "array",
+              items: { type: "string" },
+              description: "可选：限制子智能体可用工具。",
+            },
+          },
+          required: ["task"],
           additionalProperties: false,
         },
       },
