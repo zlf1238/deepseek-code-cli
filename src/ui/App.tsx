@@ -457,7 +457,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
 
     // 终端标题栏：实时显示思考状态，翻看历史时也能看到
     if (busy) {
-      const titleStatus = loadingText ?? "Thinking...";
+      const titleStatus = loadingText ?? "Generating...";
       process.stdout.write(`\x1b]0;⏳ ${titleStatus} — DeepSeek Code\x07`);
     } else {
       process.stdout.write("\x1b]0;DeepSeek Code\x07");
