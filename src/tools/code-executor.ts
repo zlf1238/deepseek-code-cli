@@ -27,7 +27,7 @@ export const CODE_EXECUTOR_SYSTEM = `You are a code executor sub-agent. Your ONL
 
 Rules:
 1. Read all target files first using read_file to see current contents of each file
-2. Apply modifications using edit_file with SEARCH/REPLACE blocks — work through files in logical order
+2. Apply modifications using edit_file with SEARCH/REPLACE blocks — work through files in logical order. For changes spanning 2+ files, prefer multi_edit to make all edits in a single atomic call.
 3. When modifying multiple files, keep in mind how changes in one file affect others (e.g. type changes in one file may require matching changes in callers)
 4. Do NOT expand scope — change ONLY what the instruction specifies
 5. Do NOT add "improvements", refactoring, or extra fixes beyond the instruction
@@ -50,6 +50,7 @@ export const EXPLORER_SYSTEM = `You are an Explorer sub-agent. Your job: investi
 4. gitnexus_impact — blast-radius analysis before changes
 5. gitnexus_processes — trace end-to-end execution flows
 Only use read_file + grep to verify specific lines GitNexus pointed at.
+**If GitNexus tools return empty results or errors** (project may not be indexed yet), fall back to grep + read_file to explore directly — but stay focused on the task.
 
 ## Pitfall prevention
 - search_files matches file NAMES only — NOT for "find callers of X"
@@ -62,6 +63,10 @@ Stop as soon as you can answer. Then deliver.
 
 ## Output format
 - Lead with the conclusion (one paragraph or short bullets)
+- Tag confidence: [confident] / [partial] / [uncertain] at the start of your answer
+  - [confident] = GitNexus returned clear results, verified with read_file
+  - [partial] = found some evidence but may be incomplete (e.g. only direct callers, may miss indirect)
+  - [uncertain] = GitNexus failed or returned empty, answer based on grep/read_file only
 - Cite file:line evidence
 - If the answer can't be found, say so + suggest next direction
 - No follow-up offers, no "let me know if you need more"
@@ -72,7 +77,7 @@ const MAX_ITERS = 12;
 
 /** 子智能体的工具定义（默认 read_file + edit_file + write_file，可通过 allowedTools 扩展） */
 function getSubagentTools(allowedTools?: string[]) {
-  const toolSet = new Set(allowedTools ?? ["read_file", "edit_file", "write_file"]);
+  const toolSet = new Set(allowedTools ?? ["read_file", "edit_file", "write_file", "multi_edit"]);
   const tools: Array<{
     type: "function";
     function: {
@@ -105,6 +110,36 @@ function getSubagentTools(allowedTools?: string[]) {
           replace_all: { type: "boolean" as const, description: "是否替换所有匹配项（默认 false）。" },
         },
         required: ["file_path", "old_string", "new_string"], additionalProperties: false,
+      },
+    },
+  });
+
+  if (toolSet.has("multi_edit")) tools.push({
+    type: "function" as const,
+    function: {
+      name: "multi_edit",
+      description: "在一次原子操作中编辑多个文件。每次编辑可以替换文件中某个字符串的所有匹配项或仅首个匹配项。编辑按顺序应用：如果一次编辑失败，后续编辑仍会尝试。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          edits: {
+            type: "array" as const,
+            description: "要执行的编辑操作列表。",
+            items: {
+              type: "object" as const,
+              properties: {
+                file_path: { type: "string" as const, description: "要编辑的文件绝对路径。" },
+                old_string: { type: "string" as const, description: "要替换的文本。" },
+                new_string: { type: "string" as const, description: "替换后的文本（必须与 old_string 不同）。" },
+                replace_all: { type: "boolean" as const, description: "替换所有匹配项。默认 false（仅首个）。" },
+                expected_occurrences: { type: "number" as const, description: "当 replace_all 为 true 时，预期的匹配次数——安全校验。" },
+              },
+              required: ["file_path", "old_string", "new_string"],
+            },
+          },
+        },
+        required: ["edits"],
+        additionalProperties: false,
       },
     },
   });
@@ -372,7 +407,8 @@ function calculateSubagentCost(
   cost += (hit / 1_000_000) * pricing.inputCacheHitPricePerMillion;
   cost += (miss / 1_000_000) * pricing.inputCacheMissPricePerMillion;
   // 未区分缓存/未缓存的 prompt token 按 miss 价计
-  const uncategorized = Math.max(0, prompt - hit - miss);
+  // prompt_tokens 统计可能少于缓存分项之和（部分 API 实现），取 max(0, 差值)
+  const uncategorized = Math.max(0, prompt - (hit + miss));
   cost += (uncategorized / 1_000_000) * pricing.inputCacheMissPricePerMillion;
   cost += (completion / 1_000_000) * pricing.outputPricePerMillion;
   return cost;
@@ -700,6 +736,9 @@ export async function handleCodeExecutorTool(
   };
 }
 
+/** 模块级惰性单例缓存：ToolExecutor 实例复用，避免每次调用重新创建 */
+let _cachedToolExecutor: InstanceType<typeof import("./executor").ToolExecutor> | null = null;
+
 /** 技能子智能体 —— 在隔离的 Flash 子智能体中执行 Skill 任务。
  *  与 handleCodeExecutorTool 不同：不要求 file_paths，使用传入的 systemPrompt，
  *  默认更多迭代（20 次），通过 ToolExecutor 支持全部工具。 */
@@ -714,10 +753,12 @@ export async function runSkillSubagent(
   allowedToolNames?: string[],
   maxIters?: number,
   shouldStop?: () => boolean,
+  name?: string,
 ): Promise<ToolExecutionResult> {
   // ── 1. 默认值 ──
   const resolvedModel = model ?? "deepseek-v4-flash";
   const resolvedMaxIters = maxIters ?? 20;
+  const resultName = name ?? "SkillLoad";
   const resolvedAllowedTools = allowedToolNames ?? [
     "read_file", "grep", "glob", "gitnexus_query", "gitnexus_context",
     "gitnexus_impact", "gitnexus_clusters", "gitnexus_processes",
@@ -741,7 +782,7 @@ export async function runSkillSubagent(
   if (!client) {
     return {
       ok: false,
-      name: "SkillLoad",
+      name: resultName,
       error: "No API client available for skill sub-agent.",
       metadata: { failureCode: "NO_CLIENT" as SubagentFailureCode },
     };
@@ -769,9 +810,12 @@ export async function runSkillSubagent(
     reasoningEffort,
   );
 
-  // 动态导入 ToolExecutor 避免循环依赖（executor.ts 已导入本文件）
-  const { ToolExecutor } = await import("./executor");
-  const toolExecutor = new ToolExecutor(context.projectRoot, context.createOpenAIClient);
+  if (!_cachedToolExecutor) {
+    const { ToolExecutor } = await import("./executor");
+    _cachedToolExecutor = new ToolExecutor(context.projectRoot, context.createOpenAIClient);
+  }
+  const toolExecutor = _cachedToolExecutor;
+  let noProgressStreak = 0;
 
   for (let iter = 0; iter < resolvedMaxIters; iter++) {
     // 用户中断检查（按 Esc 时主循环设置此标志）
@@ -780,7 +824,7 @@ export async function runSkillSubagent(
       const costUsd = calculateSubagentCost(totalUsage, pricing);
       return {
         ok: false,
-        name: "SkillLoad",
+        name: resultName,
         error: "Sub-agent interrupted by user.",
         metadata: {
           failureCode: "TIMEOUT" as SubagentFailureCode,
@@ -813,7 +857,7 @@ export async function runSkillSubagent(
         const costUsd = calculateSubagentCost(totalUsage, pricing);
         return {
           ok: false,
-          name: "SkillLoad",
+          name: resultName,
           error: `Skill sub-agent API call timed out after ${SUBAGENT_API_TIMEOUT_MS / 1000}s.`,
           metadata: {
             failureCode: "API_ERROR" as SubagentFailureCode,
@@ -827,7 +871,7 @@ export async function runSkillSubagent(
       const costUsd = calculateSubagentCost(totalUsage, pricing);
       return {
         ok: false,
-        name: "SkillLoad",
+        name: resultName,
         error: `Skill sub-agent API call failed: ${msg}`,
         metadata: {
           failureCode: "API_ERROR" as SubagentFailureCode,
@@ -856,7 +900,7 @@ export async function runSkillSubagent(
       const costUsd = calculateSubagentCost(totalUsage, pricing);
       return {
         ok: true,
-        name: "SkillLoad",
+        name: resultName,
         output: JSON.stringify({
           success: true,
           output: content || "[skill sub-agent completed without output]",
@@ -898,6 +942,39 @@ export async function runSkillSubagent(
       toolCalls,
     );
 
+    // 自适应提前终止：连续搜索但无实质性进展
+    const SEARCH_TOOLS = new Set(["read_file", "grep", "glob", "search_files", "directory_tree", "get_file_info"]);
+    const allSearchTools = toolCalls.length > 0 && (toolCalls as Array<{function?: {name?: string}}>).every(
+      (tc) => SEARCH_TOOLS.has(tc.function?.name ?? "")
+    );
+    if (allSearchTools) {
+      noProgressStreak++;
+      if (noProgressStreak >= 3) {
+        const elapsedMs = Date.now() - startedAt;
+        const costUsd = calculateSubagentCost(totalUsage, pricing);
+        return {
+          ok: true,
+          name: resultName,
+          output: JSON.stringify({
+            success: true,
+            output: content || "[exploration stopped early — no progress after 3 search-only rounds]",
+            turns: iter + 1,
+            tool_iters: toolIters,
+            elapsed_ms: elapsedMs,
+            cost_usd: Number(costUsd.toFixed(6)),
+          }),
+          metadata: {
+            subagentModel: actualModel,
+            subagentUsage: totalUsage,
+            subagentCostUsd: costUsd,
+            subagentElapsedMs: elapsedMs,
+          },
+        };
+      }
+    } else {
+      noProgressStreak = 0;
+    }
+
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = (toolCalls as Array<{ id?: string }>)[i];
       const execResult = toolCallResults[i];
@@ -920,7 +997,7 @@ export async function runSkillSubagent(
   const costUsd = calculateSubagentCost(totalUsage, pricing);
   return {
     ok: false,
-    name: "SkillLoad",
+    name: resultName,
     error: `Skill sub-agent exceeded maximum ${resolvedMaxIters} iterations without completing the task.`,
     metadata: {
       failureCode: "TIMEOUT" as SubagentFailureCode,
@@ -951,14 +1028,38 @@ export async function handleSpawnExplorerTool(
   const extraContext = typeof args.context === "string" ? args.context.trim() : "";
   const fullTask = extraContext ? `${task}\n\nAdditional context: ${extraContext}` : task;
   const model = typeof args.model === "string" ? args.model : undefined;
-  const maxIters = typeof args.max_iters === "number" ? args.max_iters as number : 20;
+  const rawMaxIters = typeof args.max_iters === "number" ? args.max_iters as number : 20;
+  const maxIters = Math.max(1, Math.min(rawMaxIters, 32));
+
+  const EXPLORER_MIN_TOOLS = [
+    "gitnexus_query", "gitnexus_context", "gitnexus_clusters",
+    "gitnexus_impact", "gitnexus_processes",
+    "read_file", "grep", "glob", "get_file_info", "directory_tree",
+  ];
 
   let allowedTools: string[] | undefined;
   if (Array.isArray(args.allowed_tools)) {
-    allowedTools = (args.allowed_tools as string[]).filter((t) => typeof t === "string");
+    const filtered = (args.allowed_tools as string[]).filter((t) => typeof t === "string");
+    if (filtered.length === 0) {
+      allowedTools = undefined;
+    } else {
+      const hasGitNexus = filtered.some((t: string) => t.startsWith("gitnexus_"));
+      const hasRead = filtered.includes("read_file");
+      if (!hasGitNexus || !hasRead) {
+        allowedTools = [...new Set([...filtered, ...EXPLORER_MIN_TOOLS])];
+      } else {
+        allowedTools = filtered;
+      }
+    }
   }
 
-  const result = await runSkillSubagent(
+  // Explorer is read-only — strip any write tools passed by the parent
+  const WRITE_TOOLS = new Set(["edit_file", "write_file", "multi_edit", "bash"]);
+  if (allowedTools) {
+    allowedTools = allowedTools.filter((t) => !WRITE_TOOLS.has(t));
+  }
+
+  return await runSkillSubagent(
     context,
     EXPLORER_SYSTEM,
     fullTask,
@@ -966,6 +1067,6 @@ export async function handleSpawnExplorerTool(
     allowedTools,
     maxIters,
     context.shouldStop,
+    "spawn_explorer",
   );
-  return { ...result, name: "spawn_explorer" };
 }

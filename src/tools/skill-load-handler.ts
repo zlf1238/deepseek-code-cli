@@ -44,7 +44,7 @@ export async function handleSkillLoadTool(
   if (!body || !skillPath) {
     // ── 内置 explore skill 回退 ──
     if (name === "explore") {
-      const result = await runSkillSubagent(
+      return await runSkillSubagent(
         context,
         EXPLORER_SYSTEM,
         `Execute the "explore" skill on the current project.`,
@@ -52,8 +52,8 @@ export async function handleSkillLoadTool(
         undefined,
         undefined,
         context.shouldStop,
+        "SkillLoad",
       );
-      return { ...result, name: "SkillLoad" };
     }
     // Build available names list for a helpful error
     const availableNames = collectAvailableSkillNames(context.projectRoot);
@@ -65,10 +65,35 @@ export async function handleSkillLoadTool(
   }
 
   // ── 解析 frontmatter 决定 runAs 模式 ──
-  const parsed = matter(body);
-  const frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
-  const runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
-  const skillContent = parsed.content;
+  let runAs: string;
+  let skillContent: string;
+  let frontmatter: Record<string, unknown> = {};
+  try {
+    const parsed = matter(body);
+    frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
+    runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
+    skillContent = parsed.content;
+  } catch {
+    // SKILL.md 存在但解析失败 — explore skill 回退到内置 EXPLORER_SYSTEM
+    if (name === "explore") {
+      return await runSkillSubagent(
+        context,
+        EXPLORER_SYSTEM,
+        `Execute the "explore" skill on the current project.`,
+        undefined,
+        undefined,
+        undefined,
+        context.shouldStop,
+        "SkillLoad",
+      );
+    }
+    return {
+      ok: false,
+      name: "SkillLoad",
+      error: `Failed to parse skill file for \"${name}\". The SKILL.md file may be corrupted.`,
+      metadata: { failureCode: "AMBIGUOUS" as any },
+    };
+  }
 
   // ── Subagent 模式：委派给 Flash 子智能体执行 ──
   if (runAs === "subagent") {
@@ -80,7 +105,7 @@ export async function handleSkillLoadTool(
       ? (frontmatter["max-tool-iters"] as number)
       : undefined;
 
-    const result = await runSkillSubagent(
+    return await runSkillSubagent(
       context,
       skillContent,
       `Execute the "${name}" skill on the current project.`,
@@ -88,8 +113,8 @@ export async function handleSkillLoadTool(
       allowedTools,
       maxToolIters,
       context.shouldStop,
+      "SkillLoad",
     );
-    return { ...result, name: "SkillLoad" };
   }
 
   // ── Inline 模式（默认）：正文注入当前会话 ──

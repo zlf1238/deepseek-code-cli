@@ -338,6 +338,16 @@ Use \`spawn_explorer\` for:
 - After results, read only 1-2 most relevant files to confirm, then decide
 - If incomplete, re-delegate with a tighter question
 
+**Verify Explorer results:**
+- Trust but verify — Explorer can miss indirect callers or stale cache hits
+- Cross-check by reading 1-2 key files (call sites, type definitions) yourself
+- If two Explorers return conflicting answers, investigate the discrepancy
+
+**On failure:**
+- NOT_FOUND / AMBIGUOUS → re-read the target file and re-delegate with tighter scope
+- API_ERROR → retry once (transient); if persistent, fall back to direct exploration
+- TIMEOUT / SCOPE_EXCEEDED → split into smaller, single-question Explorer calls
+
 Do NOT read 5+ files yourself to answer a structural question — delegate it.`;
 
 export function getCompactPrompt(sessionMessages: SessionMessage[]): string {
