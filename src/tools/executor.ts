@@ -60,6 +60,8 @@ export type ToolExecutionContext = {
   createOpenAIClient?: CreateOpenAIClient;
   onProcessStart?: (processId: string | number, command: string) => void;
   onProcessExit?: (processId: string | number) => void;
+  /** 用户中断信号 —— 子智能体循环应定期检查此回调 */
+  shouldStop?: () => boolean;
 };
 
 export type ToolExecutionHooks = {
@@ -290,7 +292,8 @@ export class ToolExecutor {
         toolCall,
         createOpenAIClient: this.createOpenAIClient,
         onProcessStart: hooks?.onProcessStart,
-        onProcessExit: hooks?.onProcessExit
+        onProcessExit: hooks?.onProcessExit,
+        shouldStop: hooks?.shouldStop
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -703,6 +703,9 @@ export async function handleCodeExecutorTool(
 /** 技能子智能体 —— 在隔离的 Flash 子智能体中执行 Skill 任务。
  *  与 handleCodeExecutorTool 不同：不要求 file_paths，使用传入的 systemPrompt，
  *  默认更多迭代（20 次），通过 ToolExecutor 支持全部工具。 */
+/** 子智能体单次 API 调用的超时（毫秒），防止网络抖动导致长时间挂起 */
+const SUBAGENT_API_TIMEOUT_MS = 120_000;
+
 export async function runSkillSubagent(
   context: ToolExecutionContext,
   systemPrompt: string,
@@ -710,6 +713,7 @@ export async function runSkillSubagent(
   model?: string,
   allowedToolNames?: string[],
   maxIters?: number,
+  shouldStop?: () => boolean,
 ): Promise<ToolExecutionResult> {
   // ── 1. 默认值 ──
   const resolvedModel = model ?? "deepseek-v4-flash";
@@ -770,7 +774,27 @@ export async function runSkillSubagent(
   const toolExecutor = new ToolExecutor(context.projectRoot, context.createOpenAIClient);
 
   for (let iter = 0; iter < resolvedMaxIters; iter++) {
-    // API 调用
+    // 用户中断检查（按 Esc 时主循环设置此标志）
+    if (shouldStop?.()) {
+      const elapsedMs = Date.now() - startedAt;
+      const costUsd = calculateSubagentCost(totalUsage, pricing);
+      return {
+        ok: false,
+        name: "SkillLoad",
+        error: "Sub-agent interrupted by user.",
+        metadata: {
+          failureCode: "TIMEOUT" as SubagentFailureCode,
+          subagentModel: actualModel,
+          subagentUsage: totalUsage,
+          subagentCostUsd: costUsd,
+          subagentElapsedMs: elapsedMs,
+        },
+      };
+    }
+
+    // API 调用（独立 AbortController + 120s 超时，防止网络挂起）
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), SUBAGENT_API_TIMEOUT_MS);
     let response: OpenAI.Chat.Completions.ChatCompletion;
     try {
       response = (await client.chat.completions.create({
@@ -778,9 +802,28 @@ export async function runSkillSubagent(
         messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
         tools: getSubagentTools(resolvedAllowedTools) as OpenAI.Chat.Completions.ChatCompletionTool[],
         ...thinkingOptions,
+      }, {
+        signal: abortController.signal,
       })) as OpenAI.Chat.Completions.ChatCompletion;
     } catch (err) {
+      clearTimeout(timeoutId);
       const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && err.name === "AbortError") {
+        const elapsedMs = Date.now() - startedAt;
+        const costUsd = calculateSubagentCost(totalUsage, pricing);
+        return {
+          ok: false,
+          name: "SkillLoad",
+          error: `Skill sub-agent API call timed out after ${SUBAGENT_API_TIMEOUT_MS / 1000}s.`,
+          metadata: {
+            failureCode: "API_ERROR" as SubagentFailureCode,
+            subagentModel: actualModel,
+            subagentUsage: totalUsage,
+            subagentCostUsd: costUsd,
+            subagentElapsedMs: elapsedMs,
+          },
+        };
+      }
       const costUsd = calculateSubagentCost(totalUsage, pricing);
       return {
         ok: false,
@@ -796,6 +839,7 @@ export async function runSkillSubagent(
       };
     }
 
+    clearTimeout(timeoutId);
     totalUsage = accumulateUsage(totalUsage, response.usage);
 
     const choice = response.choices?.[0];
@@ -921,6 +965,7 @@ export async function handleSpawnExplorerTool(
     model,
     allowedTools,
     maxIters,
+    context.shouldStop,
   );
   return { ...result, name: "spawn_explorer" };
 }

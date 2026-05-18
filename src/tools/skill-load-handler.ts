@@ -48,6 +48,10 @@ export async function handleSkillLoadTool(
         context,
         EXPLORER_SYSTEM,
         `Execute the "explore" skill on the current project.`,
+        undefined,
+        undefined,
+        undefined,
+        context.shouldStop,
       );
       return { ...result, name: "SkillLoad" };
     }
@@ -83,6 +87,7 @@ export async function handleSkillLoadTool(
       model,
       allowedTools,
       maxToolIters,
+      context.shouldStop,
     );
     return { ...result, name: "SkillLoad" };
   }

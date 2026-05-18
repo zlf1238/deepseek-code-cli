@@ -286,7 +286,8 @@ export function getSystemPrompt(projectRoot: string, options: PromptToolOptions 
     : SYSTEM_PROMPT_BASE;
   const skillsIndex = getSkillsIndex(projectRoot);
   const supervisorExplorer = options.supervisorMode ? `\n\n${EXPLORER_GUIDANCE}` : "";
-  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}${supervisorExplorer}\n\n${getRuntimeContext(projectRoot)}`;
+  // EXPLORER_GUIDANCE 放在 runtimeContext 之后，确保两种模式的公共前缀一致，避免跨模式缓存失效
+  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}\n\n${getRuntimeContext(projectRoot)}${supervisorExplorer}`;
 }
 
 /** Supervisor-Worker 架构的行为指南，嵌入 system prompt。 */

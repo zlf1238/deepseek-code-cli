@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { defaultsToThinkingMode, DEEPSEEK_V4_PRO, DEEPSEEK_V4_FLASH } from "./model-capabilities";
+import { defaultsToThinkingMode, DEEPSEEK_V4_PRO, DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO_PRICING, DEEPSEEK_V4_FLASH_PRICING } from "./model-capabilities";
+import type { PricingSnapshot } from "./model-capabilities";
 
 export type DeepcodingEnv = {
   MODEL?: string;
@@ -203,6 +204,12 @@ export function resolveSettings(
   const resolvedBaseURL =
     modelOverride?.baseURL?.trim() || env.BASE_URL?.trim() || defaults.baseURL;
 
+  // 内置市场基准定价 fallback：用户可在 settings.json 中覆盖
+  const defaultPricing: PricingSnapshot | null =
+    model === DEEPSEEK_V4_PRO ? DEEPSEEK_V4_PRO_PRICING
+    : model === DEEPSEEK_V4_FLASH ? DEEPSEEK_V4_FLASH_PRICING
+    : null;
+
   const resolvePrice = (field: "inputPricePerMillion" | "outputPricePerMillion"): number => {
     // 1. 优先使用 per-model 定价
     const modelPrice = modelOverride?.pricing?.[field];
@@ -214,7 +221,12 @@ export function resolveSettings(
     if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
       return globalPrice;
     }
-    // 3. 默认值
+    // 3. 已知模型使用内置市场基准价（如 deepseek-v4-pro/flash）
+    if (defaultPricing) {
+      if (field === "inputPricePerMillion") return defaultPricing.inputCacheMissPricePerMillion;
+      if (field === "outputPricePerMillion") return defaultPricing.outputPricePerMillion;
+    }
+    // 4. 未知模型默认 0
     return 0;
   };
 
@@ -229,7 +241,11 @@ export function resolveSettings(
     if (typeof globalPrice === "number" && !Number.isNaN(globalPrice)) {
       return globalPrice;
     }
-    // 3. 回退到 inputPricePerMillion（缓存字段也会尝试解析后的 input 价格）
+    // 3. 已知模型使用内置市场基准价（如 deepseek-v4-pro/flash）
+    if (defaultPricing) {
+      return defaultPricing[field];
+    }
+    // 4. 未知模型默认 0
     return 0;
   };
 
