@@ -1947,7 +1947,7 @@ The candidate skills are as follows:\n\n`;
           if (taskParam) {
             const parsed = JSON.parse(taskParam);
             const task = typeof parsed.task === "string" ? parsed.task : "";
-            taskPreview = task.length > 60 ? `${task.slice(0, 60)}…` : task;
+            taskPreview = task.length > 500 ? `${task.slice(0, 500)}…` : task;
           }
         } catch { /* ignore parse failure */ }
         this.onAssistantMessage(
