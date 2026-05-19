@@ -67,3 +67,5 @@
   "additionalProperties": false
 }
 ```
+
+**语言要求：** 此工具的所有输入输出参数说明及使用指南均使用中文。工具的 description 参数必须用中文编写（技术术语可保留原文）。
