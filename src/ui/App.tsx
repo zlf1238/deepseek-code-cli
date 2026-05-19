@@ -18,7 +18,7 @@ import {
   type SkillInfo,
   type UserPromptContent
 } from "../session";
-import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateModeInSettings, updateThinkingConfigInSettings, type DeepcodingSettings, type PricingConfig, type ModelMode, type ReasoningEffort, type ResolvedAutoSwitchConfig } from "../settings";
+import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, updateModeInSettings, updateThinkingConfigInSettings, updateVerboseModeInSettings, type DeepcodingSettings, type PricingConfig, type ModelMode, type ReasoningEffort, type ResolvedAutoSwitchConfig } from "../settings";
 import type { PricingSnapshot } from "../model-capabilities";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
@@ -125,6 +125,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const [activeThinking, setActiveThinking] = useState<boolean>(initialSettings.thinkingEnabled);
   const [activeReasoningEffort, setActiveReasoningEffort] = useState<ReasoningEffort>(initialSettings.reasoningEffort);
 
+  // Verbose mode state (show thinking process & all tool calls)
+  const [verboseMode, setVerboseMode] = useState<boolean>(readSettings()?.verboseMode ?? false);
+
   const messagesRef = useRef<SessionMessage[]>([]);
   messagesRef.current = messages;
   const activeModelRef = useRef(activeModel);
@@ -218,6 +221,13 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       if (reasoningEffort) {
         setActiveReasoningEffort(reasoningEffort);
       }
+    }
+  }, []);
+
+  const handleVerboseChange = useCallback((verbose: boolean) => {
+    const ok = updateVerboseModeInSettings(verbose);
+    if (ok) {
+      setVerboseMode(verbose);
     }
   }, []);
 
@@ -421,7 +431,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     pendingQuestion && !dismissedQuestionIds.has(pendingQuestion.messageId)
   );
   // 只保留最新的步骤指示器和最新的 tool 消息，历史指示器和历史 tool 消息隐藏
+  // verbose 模式下展示所有 tool 消息和思考过程
   const displayMessages = useMemo(() => {
+    if (verboseMode) return messages;
     let lastStepIdx = -1;
     let lastToolIdx = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -439,7 +451,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       if (m.role === "tool" && i !== lastToolIdx) return false;
       return true;
     });
-  }, [messages]);
+  }, [messages, verboseMode]);
   // Recalculated every render so the elapsed-time counter ticks in real time.
   const loadingText = busy
     ? buildLoadingText({ progress: streamProgress, processes: runningProcesses, now: Date.now() })
@@ -503,6 +515,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           <MessageView
             key={message.id}
             message={message}
+            verboseMode={verboseMode}
           />
         )}
       </Static>
@@ -554,6 +567,8 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           onThinkingChange={(enabled, effort) => void handleThinkingChange(enabled, effort)}
           activeMode={activeMode}
           onAutoSwitchChange={(newMode) => void handleAutoSwitchChange(newMode)}
+          verboseMode={verboseMode}
+          onVerboseChange={(verbose) => void handleVerboseChange(verbose)}
           promptHistory={promptHistory}
           busy={busy}
           loadingText={loadingText}

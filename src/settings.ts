@@ -69,6 +69,8 @@ export type DeepcodingSettings = {
   models?: Record<string, ModelOverride>;
   thinkingEnabled?: boolean;
   reasoningEffort?: ReasoningEffort;
+  /** 是否展示详细模式：包括思考过程（reasoning_content）和所有工具调用历史。 */
+  verboseMode?: boolean;
   notify?: string;
   webSearchTool?: string;
   pricing?: PricingConfig;
@@ -345,6 +347,23 @@ export function updateModeInSettings(mode: ModelMode): boolean {
     const raw = fs.readFileSync(settingsPath, "utf8");
     const settings = JSON.parse(raw) as DeepcodingSettings;
     settings.mode = mode;
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 将 verboseMode 持久化到 settings.json。
+ * 成功返回 true，失败返回 false。
+ */
+export function updateVerboseModeInSettings(verboseMode: boolean): boolean {
+  try {
+    const settingsPath = path.join(os.homedir(), ".deepseek-code", "settings.json");
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as DeepcodingSettings;
+    settings.verboseMode = verboseMode;
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
     return true;
   } catch {

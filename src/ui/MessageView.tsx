@@ -5,9 +5,10 @@ import type { SessionMessage } from "../session";
 
 type Props = {
   message: SessionMessage;
+  verboseMode?: boolean;
 };
 
-export function MessageView({ message }: Props): React.ReactElement | null {
+export function MessageView({ message, verboseMode }: Props): React.ReactElement | null {
   if (!message.visible) {
     return null;
   }
@@ -27,14 +28,34 @@ export function MessageView({ message }: Props): React.ReactElement | null {
   if (message.role === "assistant") {
     const isThinking = Boolean(message.meta?.asThinking);
     const content = (message.content || "").trim();
+    const reasoningContent = getReasoningContent(message);
 
+    // Verbose mode: show thinking process for asThinking messages
     if (isThinking) {
+      if (verboseMode && reasoningContent) {
+        return (
+          <Box flexDirection="column" marginY={0}>
+            <Text dimColor>{`  ▸ 思考过程`}</Text>
+            <Box marginLeft={4} flexDirection="column">
+              <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+            </Box>
+          </Box>
+        );
+      }
       return null;
     }
 
     return (
       <Box flexDirection="column" marginY={0}>
         <Text color="cyan" bold>Assistant</Text>
+        {verboseMode && reasoningContent ? (
+          <Box marginLeft={2} flexDirection="column">
+            <Text dimColor>{`  ▸ 思考过程`}</Text>
+            <Box marginLeft={2} flexDirection="column">
+              <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+            </Box>
+          </Box>
+        ) : null}
         <Box marginLeft={2} flexDirection="column">
           {content ? <Text>{renderMarkdown(content)}</Text> : null}
         </Box>
@@ -290,6 +311,14 @@ function firstNonEmptyLine(value: string): string {
     }
   }
   return "";
+}
+
+function getReasoningContent(message: SessionMessage): string | null {
+  const params = message.messageParams as { reasoning_content?: string } | null | undefined;
+  if (params && typeof params.reasoning_content === "string" && params.reasoning_content.trim()) {
+    return params.reasoning_content.trim();
+  }
+  return null;
 }
 
 

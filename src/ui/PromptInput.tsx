@@ -50,6 +50,8 @@ type Props = {
   onThinkingChange: (thinkingEnabled: boolean, reasoningEffort?: ReasoningEffort) => void;
   activeMode: string;
   onAutoSwitchChange: (newMode: string) => void;
+  verboseMode: boolean;
+  onVerboseChange: (verbose: boolean) => void;
   promptHistory: string[];
   busy: boolean;
   loadingText?: string | null;
@@ -103,6 +105,8 @@ export function PromptInput({
   onThinkingChange,
   activeMode,
   onAutoSwitchChange,
+  verboseMode,
+  onVerboseChange,
   promptHistory,
   busy,
   loadingText,
@@ -148,7 +152,7 @@ export function PromptInput({
       ? loadingText && loadingText.trim()
         ? `${loadingText} · model: ${formatModelDisplay(activeModel)}`
         : `Esc: 中断响应 · Ctrl+C: 取消输入 · model: ${formatModelDisplay(activeModel)}`
-      : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)} · thinking: ${activeThinking ? activeReasoningEffort : "off"} · autoSwitch: ${activeMode === "auto" ? "on" : "off"}`;
+      : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${formatModelDisplay(activeModel)} · thinking: ${activeThinking ? activeReasoningEffort : "off"} · verbose: ${verboseMode ? "on" : "off"} · autoSwitch: ${activeMode === "auto" ? "on" : "off"}`;
   const cursorPlacement = useMemo(
     () => getPromptCursorPlacement(buffer, screenWidth, promptPrefix, footerText),
     [buffer, footerText, promptPrefix, screenWidth]
@@ -627,6 +631,13 @@ export function PromptInput({
       const newMode = activeMode === "auto" ? "pro" : "auto";
       onAutoSwitchChange(newMode);
       setStatusMessage(newMode === "auto" ? "自动切换已开启" : "自动切换已关闭");
+      return;
+    }
+    if (item.kind === "verbose") {
+      clearSlashToken();
+      const newVerbose = !verboseMode;
+      onVerboseChange(newVerbose);
+      setStatusMessage(newVerbose ? "详细模式已开启（展示思考过程和工具调用历史）" : "详细模式已关闭");
       return;
     }
     if (item.kind === "new") {
