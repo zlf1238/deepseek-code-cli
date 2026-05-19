@@ -1,6 +1,6 @@
 # DeepSeek Code CLI
 
-Vibe coding for the deepseek-v4 model, in your terminal.
+在终端中为 deepseek-v4 模型进行 Vibe Coding。
 
 ## 运行
 
@@ -10,7 +10,7 @@ npm run build && node dist/cli.cjs
 
 ## 配置
 
-Create `~/.deepseek-code/settings.json`:
+创建 `~/.deepseek-code/settings.json`：
 
 ```json
 {
@@ -20,15 +20,15 @@ Create `~/.deepseek-code/settings.json`:
     "API_KEY": "sk-..."
   },
   "thinkingEnabled": true,
-  "reasoningEffort": "max"
+    "reasoningEffort": "max"
 }
 ```
 
 ## 技能
 
-Skills live in:
+技能文件存放在：
 
-- `~/.agents/skills/<name>/SKILL.md` (user-level)
-- `./.deepseek-code/skills/<name>/SKILL.md` (project-level)
+- `~/.agents/skills/<name>/SKILL.md`（用户级）
+- `./.deepseek-code/skills/<name>/SKILL.md`（项目级）
 
-Inside the TUI press `/` to open the skill picker, or type the skill name directly (e.g. `/skill-writer`).
+在 TUI 界面中按 `/` 打开技能选择器，或直接输入技能名称（例如 `/skill-writer`）。
