@@ -1627,6 +1627,7 @@ The candidate skills are as follows:\n\n`;
   private loadAgentInstructions(): string | null {
     const candidatePaths = [
       path.join(this.projectRoot, ".deepseek-code", "AGENTS.md"),
+      path.join(this.projectRoot, "AGENTS.md"),
       path.join(os.homedir(), ".deepseek-code", "AGENTS.md")
     ];
 
