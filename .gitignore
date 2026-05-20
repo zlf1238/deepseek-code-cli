@@ -8,3 +8,5 @@ dist/
 docs/developers/worklogs/
 # 本地思考过程文件
 *思考过程.txt
+log.txt
+models.generated.ts
