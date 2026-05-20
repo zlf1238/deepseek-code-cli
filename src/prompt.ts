@@ -726,7 +726,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "multi_edit",
       description:
-        "在一次原子操作中编辑多个文件。每次编辑可以替换文件中某个字符串的所有匹配项或仅首个匹配项。编辑按顺序应用：如果一次编辑失败，后续编辑仍会尝试。",
+        "在一次操作中编辑多个文件。每次编辑可以替换文件中某个字符串的所有匹配项或仅首个匹配项。编辑按顺序应用：如果一次编辑失败，后续编辑仍会尝试。注意：此操作非原子——成功的编辑在失败发生后不会被回滚。",
       parameters: {
         type: "object",
         properties: {
@@ -1037,13 +1037,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
                 "当 task 涉及外部类型/函数名时**必须**提供此字段，否则子智能体会因信息不足而失败。" +
                 "不要粘贴完整文件——只提供修改所必需的类型和签名。",
             },
-            require_confirmation: {
-              type: "boolean",
-              description:
-                "可选：是否在 spawn 前要求用户确认。默认 false。" +
-                "跨文件修改、删除代码超过 10 行、涉及关键模块时建议设为 true。",
-            },
-            allowed_tools: {
+allowed_tools: {
               type: "array",
               items: { type: "string", enum: ["read_file", "edit_file", "write_file", "grep"] },
               description:

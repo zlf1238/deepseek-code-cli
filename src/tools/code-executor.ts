@@ -459,9 +459,6 @@ export async function handleCodeExecutorTool(
   const allowedTools: string[] | undefined = Array.isArray(args.allowed_tools)
     ? (args.allowed_tools as string[]).filter((t) => typeof t === "string")
     : undefined;
-  // require_confirmation：要求 spawn 前用户确认
-  const requireConfirmation = typeof args.require_confirmation === "boolean" ? args.require_confirmation : false;
-
   if (!client) {
     return {
       ok: false,
