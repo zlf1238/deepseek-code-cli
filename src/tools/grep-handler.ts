@@ -17,8 +17,8 @@ type GrepMatch = {
   file: string;
   line: number;
   content: string;
-  before: string[];
-  after: string[];
+  before: {line: number; content: string}[];
+  after: {line: number; content: string}[];
 };
 
 function resolveSearchDir(root: string, targetPath: string | undefined): string {
@@ -39,7 +39,7 @@ function buildGrepArgs(
   context: number,
   ignoreCase: boolean
 ): string[] {
-  const args: string[] = ["-rn", "--color=never"];
+  const args: string[] = ["-rnH", "--color=never"];
 
   if (ignoreCase) {
     args.push("-i");
@@ -70,6 +70,7 @@ function parseGrepOutput(stdout: string, context: number): GrepMatch[] {
   const matches: GrepMatch[] = [];
   let currentMatch: GrepMatch | null = null;
   let afterCount = 0;
+  let orphanBefore: Array<{line: number; content: string}> = [];
 
   for (const rawLine of lines) {
     // Match lines like: file:line:content  or  file-line-content (with -C)
@@ -86,7 +87,11 @@ function parseGrepOutput(stdout: string, context: number): GrepMatch[] {
     }
 
     const matchColon = rawLine.match(/^([^:]+):(\d+):(.*)$/);
-    const matchHyphen = rawLine.match(/^([^-]+)-(\d+)-(.*)$/);
+        // Use lazy .*? instead of [^-]+ to handle paths containing hyphens
+    // (e.g. deepseek-code-cli/src/...). The filename from context lines is
+    // never used — it comes from currentMatch.file — so we only need to
+    // extract the line number and content.
+    const matchHyphen = rawLine.match(/^.*?-(\d+)-(.*)$/);
 
     if (matchColon) {
       // This is the matched line
@@ -104,22 +109,29 @@ function parseGrepOutput(stdout: string, context: number): GrepMatch[] {
         before: [],
         after: []
       };
+      // Transfer orphan before lines to current match
+      for (const ob of orphanBefore) {
+        if (ob.line < currentMatch.line) {
+          currentMatch.before.push(ob);
+        }
+      }
+      orphanBefore = [];
     } else if (matchHyphen && currentMatch) {
       // This is a context line
-      const lineContent = matchHyphen[3];
+            const lineContent = matchHyphen[2];
       if (afterCount < context) {
         // Could be before or after - we determine by line number
-        const lineNum = parseInt(matchHyphen[2], 10);
+                const lineNum = parseInt(matchHyphen[1], 10);
         if (lineNum < currentMatch.line) {
-          currentMatch.before.push(lineContent);
+          currentMatch.before.push({line: lineNum, content: lineContent});
         } else {
-          currentMatch.after.push(lineContent);
+          currentMatch.after.push({line: lineNum, content: lineContent});
           afterCount++;
         }
       }
     } else if (matchHyphen) {
-      // Context line without current match (before the first match in file)
-      // Ignore orphaned context
+      // Context line without current match — stash as orphan before
+      orphanBefore.push({ line: parseInt(matchHyphen[1], 10), content: matchHyphen[2] });
     }
   }
 
@@ -167,43 +179,21 @@ function truncateOutput(output: string): { text: string; truncated: boolean } {
   return { text: output.slice(0, MAX_OUTPUT_CHARS), truncated: true };
 }
 
-export async function handleGrepTool(
-  args: Record<string, unknown>,
-  context: ToolExecutionContext
-): Promise<ToolExecutionResult> {
-  const pattern = typeof args.pattern === "string" ? args.pattern.trim() : "";
-  if (!pattern) {
-    return {
-      ok: false,
-      name: "grep",
-      error: "Missing required \"pattern\" string."
-    };
-  }
+interface GrepResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
 
-  const searchPath = typeof args.path === "string" ? args.path : undefined;
-  const include = typeof args.include === "string" ? args.include : undefined;
-  const contextLines = typeof args.context === "number" && args.context >= 0 ? args.context : 2;
-  const ignoreCase = typeof args.ignoreCase === "boolean" ? args.ignoreCase : false;
-
-  const dir = resolveSearchDir(context.projectRoot, searchPath);
-
-  let includePattern: string | undefined;
-  if (typeof args.include === "string" && args.include.trim()) {
-    includePattern = args.include.trim();
-  }
-
-  const grepArgs = buildGrepArgs(pattern, dir, includePattern, contextLines, ignoreCase);
-
-  const rtkConfig = loadRTKConfig();
-  const { command: spawnCmd, args: spawnArgs } = wrapGrepArgs(grepArgs, rtkConfig);
-
-  const { stdout, stderr, exitCode } = await new Promise<{
-    stdout: string;
-    stderr: string;
-    exitCode: number | null;
-  }>((resolve) => {
-    const child = spawn(spawnCmd, spawnArgs, {
-      cwd: context.projectRoot,
+/** Run grep (or rtk-wrapped grep) and return stdout/stderr/exitCode. */
+async function runGrep(
+  command: string,
+  args: string[],
+  cwd: string
+): Promise<GrepResult> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -234,6 +224,43 @@ export async function handleGrepTool(
       });
     });
   });
+}
+
+
+export async function handleGrepTool(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
+  const pattern = typeof args.pattern === "string" ? args.pattern.trim() : "";
+  if (!pattern) {
+    return {
+      ok: false,
+      name: "grep",
+      error: "Missing required \"pattern\" string."
+    };
+  }
+
+  const searchPath = typeof args.path === "string" ? args.path : undefined;
+  const include = typeof args.include === "string" ? args.include : undefined;
+  const contextLines = typeof args.context === "number" && args.context >= 0 ? args.context : 2;
+  const ignoreCase = typeof args.ignoreCase === "boolean" ? args.ignoreCase : false;
+
+  const dir = resolveSearchDir(context.projectRoot, searchPath);
+
+  let includePattern: string | undefined;
+  if (typeof args.include === "string" && args.include.trim()) {
+    includePattern = args.include.trim();
+  }
+
+  const grepArgs = buildGrepArgs(pattern, dir, includePattern, contextLines, ignoreCase);
+
+  const rtkConfig = loadRTKConfig();
+  const { command: spawnCmd, args: spawnArgs } = wrapGrepArgs(grepArgs, rtkConfig);
+
+  const result = await runGrep(spawnCmd, spawnArgs, context.projectRoot);
+  let stdout = result.stdout;
+  let stderr = result.stderr;
+  let exitCode = result.exitCode;
 
   // grep returns exit code 1 when no matches found - that's not an error
   if (exitCode !== null && exitCode !== 0 && exitCode !== 1) {
@@ -245,7 +272,28 @@ export async function handleGrepTool(
     };
   }
 
-  const matches = parseGrepOutput(stdout, contextLines);
+  let matches = parseGrepOutput(stdout, contextLines);
+
+  // rtk may silently return empty results. Fall back to bare grep.
+  const usedRTK = rtkConfig.enabled && spawnCmd !== "grep";
+  if (matches.length === 0 && usedRTK && exitCode !== null && exitCode <= 1) {
+    const fallback = await runGrep("grep", grepArgs, context.projectRoot);
+    if (fallback.exitCode !== null && fallback.exitCode <= 1) {
+      stdout = fallback.stdout;
+      stderr = fallback.stderr;
+      exitCode = fallback.exitCode;
+      matches = parseGrepOutput(fallback.stdout, contextLines);
+    }
+    if (matches.length === 0 && fallback.stderr) {
+      return {
+        ok: false,
+        name: "grep",
+        error: "grep failed (rtk returned empty, bare grep also failed): " + fallback.stderr,
+        metadata: { exitCode: fallback.exitCode }
+      };
+    }
+  }
+
   const formatted = formatGrepResult(matches);
 
   // 匹配数超过阈值 → handle 化：溢出全量，返回预览
