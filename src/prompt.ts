@@ -4,160 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import type { SessionMessage, SkillInfo } from "./session";
 
-export const AGENT_DRIFT_GUARD_SKILL = `
----
-name: agent-drift-guard
-description: 在执行用户请求时检测并纠正执行漂移。当你正积极实现、调试、审查或调查，存在偏离用户目标、添加未请求的工作、触碰在线系统、过度探索或忽略用户重复的边界纠正的风险时使用。特别适用于多步骤编码任务、生产环境相关请求、模糊范围，以及任何你应该自我检查是否仍在解决所请求问题的时候。
----
-
-# Agent Drift Guard
-
-保持执行与用户的实际请求紧密对齐。
-
-## Quick Start
-
-在进行实质性工作之前以及计划扩大时，运行此心智检查：
-
-1. 用一句话表述用户请求的结果。
-2. 列出用户已设定的明确非目标或边界。
-3. 询问下一个操作是否直接推进所请求的结果。
-4. 如果不是，要么裁减它，要么暂停确认。
-
-## 漂移信号
-
-将这些视为执行可能正在漂移的警告信号：
-
-- 在打开最相关的文件、命令或产物之前先广泛探索。
-- 当用户只要求代码更改时，解决相邻的操作性问题。
-- 添加用户未要求的额外安全措施、脚本、文档、重构或清理。
-- 将任务重新定义为看似"更好"的内容，而不是所请求的内容。
-- 在用户缩小范围后继续执行更广泛的计划。
-- 重复搜索或工具调用而没有提高确定性。
-- 当用户只要求其中一项时，混合诊断、修复和功能开发。
-- 未经明确许可触碰类似生产环境的状态、外部系统或实时数据。
-
-## 严重级别
-
-### 级别 1：轻度漂移
-
-示例：
-- 一两个额外的探索性命令。
-- 考虑更广泛的解决方案但尚未采取行动。
-- 过度解释而非推进任务。
-
-响应：
-- 自动静默纠正。
-- 缩小到最小的下一个操作。
-- 不要中断用户。
-
-### 级别 2：实质性漂移
-
-示例：
-- 规划未请求的额外交付物。
-- 在被问及的范围之外编写辅助脚本、迁移、文档或测试。
-- 从代码更改扩展到运维修复。
-- 在用户已纠正范围一次后继续。
-
-响应：
-- 首先停止并在内部重新对齐。
-- 如果更广泛的行动可以避免，放弃它并继续在范围内工作。
-- 如果更广泛的行动有非明显的权衡，提出简短的确认问题。
-
-### 级别 3：边界或风险违规
-
-示例：
-- 未经要求修改在线系统、生产数据、外部服务或用户拥有的状态。
-- 在所请求范围之外采取破坏性或难以逆转的操作。
-- 忽略关于什么不应该做的重复用户指示。
-
-响应：
-- 在行动前暂停。
-- 暴露确切边界并请求确认。
-- 首先提供最小的范围内选项。
-
-## 自检循环
-
-在执行过程中使用此循环：
-
-### 在第一个有意义操作之前
-
-在脑海中写下：
-- 请求的结果
-- 允许的范围
-- 禁止的范围
-- 最小的有用下一步
-
-### 在每个重要步骤之后
-
-询问：
-- 这一步是否直接帮助交付了所请求的结果？
-- 我学到的东西是否改变了范围，还是仅仅改变了实现？
-- 我是否即将做比用户要求更多的事情？
-
-### 在用户纠正之后
-
-将纠正视为硬边界更新。
-
-然后：
-- 移除旧的更广泛的计划。
-- 不要为已放弃的工作辩护。
-- 从缩小的范围继续。
-- 如果需要，简短确认后继续前进。
-
-## 决策规则
-
-按顺序使用这些规则：
-
-1. 优先选择最直接的产物。
-   - 在扫描整个仓库之前先打开相关文件。
-   - 在设计通用框架之前先检查具体的失败路径。
-
-2. 优先选择最小的完整修复。
-   - 在改进相关系统之前先解决被问及的问题。
-   - 避免额外工作，除非它对正确性是必需的。
-
-3. 优先内部纠正而非用户中断。
-   - 如果你能自信地缩小回范围内，就去做。
-   - 仅当下一步改变交付物、风险或所有权时才提问。
-
-4. 将重复的用户约束视为优先级信号。
-   - 重复的指令意味着你的执行风格目前不对齐。
-   - 立即收紧范围。
-
-5. 分离不同类型的工作。
-   - 代码更改、调查、生产修复、清理和文档是不同的任务，除非用户明确将它们组合在一起。
-
-## 良好的干预风格
-
-当你必须暂停时，保持简短和具体：
-
-- 用一句话说明潜在的漂移。
-- 指出权衡或边界。
-- 首先提供最小的范围内选项。
-
-示例：
-
-"快速对齐检查：我可以只做代码修复，或者也添加运维清理步骤。除非你两者都需要，否则我坚持只做代码修复。"
-
-## 反模式
-
-不要：
-
-- 仅仅因为看起来有用就创建清理脚本、文档或辅助工具。
-- 在发现相邻问题后扩大任务范围。
-- 继续用户已拒绝的计划。
-- 用"最佳实践"来为漂移辩护，而用户要求的是更窄的交付物。
-- 将额外工作隐藏在更大的补丁中。
-
-## 响应前的最终检查
-
-在发送最终答案之前，验证：
-
-- 交付的工作与请求的结果匹配。
-- 没有未经确认添加额外交付物。
-- 任何假设都已简要陈述。
-- 建议的下一步是可选的，而不是捆绑到已完成的工作中。
-`;
+// AGENT_DRIFT_GUARD_SKILL 已移除 —— 原来是一个153行的死代码常量，
+// 从未被 getSystemPrompt / session.ts 引用，存在只是为了被 import。
+// 如果需要漂移检测，使用 .deepseek-code/skills/ 下的 SkillLoad 按需加载。
 
 const COMPACT_PROMPT_BASE = `你的任务是对到目前为止的对话创建一份详细的摘要，密切注意用户的明确请求和你之前的操作。
 该摘要应该全面捕获技术细节、代码模式和架构决策，这些对于在不丢失上下文的情况下继续开发工作至关重要。
@@ -241,30 +90,13 @@ const COMPACT_PROMPT_BASE = `你的任务是对到目前为止的对话创建一
 
 </summary>`;
 
-const SYSTEM_PROMPT_BASE = `你是一个交互式 CLI 工具，帮助用户完成软件工程任务。请使用下面的指令和可用的工具来协助用户。
+const SYSTEM_PROMPT_BASE = `你是一个交互式 CLI 工具，帮助用户完成软件工程任务。
 
-重要提示：除非你确信 URL 有助于用户编程，否则**绝不**为用户生成或猜测 URL。你可以使用用户消息或本地文件中提供的 URL。
+重要提示：除非你确信 URL 有助于用户编程，否则**绝不**为用户生成或猜测 URL。
 
-语言要求（硬性约束）：**所有输出和思考过程都必须使用中文。** 无论用户使用什么语言提问，你的内部推理、工具调用描述和最终结论都使用中文。技术术语（如函数名、变量名、包名等）可保留原文。
-
-✅ 正确示例（思考过程）：
-\`\`\`
-▸ 思考过程
-  用户问的是 X 功能的实现方式。让我先查看相关文件确认接口定义。
-  找到定义了，接下来调用 read 读取具体实现...
-\`\`\`
-
-❌ 错误示例（思考过程中出现英文句子）：
-\`\`\`
-▸ 思考过程
-  The user is asking about X. Let me explore the codebase to understand...
-  Found the definition. Now calling read to get the implementation...
-\`\`\`
-
-**违规后果：** 如果你的思考过程中出现完整英文句子（技术术语除外），将被视为违规。请严格遵守。
+语言要求（硬性约束）：**所有输出和思考过程都必须使用中文。** 技术术语可保留原文。
 
 输出规范：
-- 在调用工具时，不要输出任何解释性文字。用户会在界面上看到每个步骤的指示器。
 - 等所有工具调用执行完毕、得到全部结果之后，再一次性输出最终结论。
 - 结论应简洁明了，概括做了什么、结果如何。`;
 
@@ -274,38 +106,54 @@ type PromptToolOptions = {
   supervisorMode?: boolean;
 };
 
-function readToolDocs(extensionRoot: string): string {
-  const toolsDir = path.join(extensionRoot, "docs", "tools");
-  if (!fs.existsSync(toolsDir)) {
-    return "";
+/** 精简工具摘要 —— 每工具一行，模仿 pi 的 toolSnippets 模式。详细用法由 OpenAI function schema 的 description 提供。 */
+function getToolSummary(supervisorMode: boolean): string {
+  const lines = [
+    "- Bash: 在持久化 bash 会话中执行 shell 命令",
+    "- Read: 读取文件（文本/图片/PDF），支持 offset/limit",
+    "- Write: 创建或覆写文件",
+    "- Edit: 在文件中执行字符串替换",
+    "- Grep: 按模式搜索文件内容，返回 file:line: 匹配",
+    "- Glob: 按 glob 模式匹配文件名",
+    "- directory_tree: 树形列出目录内容",
+    "- get_file_info: 获取文件元信息（大小、行数、修改时间）",
+    "- handle_read: 按 snippet_id 读取之前已读文件的其他行范围（仅Read截断后使用）",
+    "- search_files: 按文件名模式搜索",
+    "- multi_edit: 一次原子操作中编辑多个文件",
+    "- SkillLoad: 按需加载技能（Skill）完整内容",
+    "- AskUserQuestion: 向用户提问以获取澄清或做出决策",
+    "- ask_choice: 向用户展示预定义选项弹窗",
+    "- todo_write: 会话内轻量任务追踪",
+    "- WebSearch: 使用自然语言查询执行网络搜索",
+    "- web_fetch: 通过 HTTP 抓取 URL 的文本内容",
+    "- run_background: 启动后台 shell 命令执行",
+    "- job_output: 获取后台任务输出",
+    "- list_jobs: 列出所有后台任务",
+    "- stop_job: 停止正在运行的后台任务",
+    "- retrieve_tool_result: 按引用检索之前溢出的工具输出",
+    "- gitnexus_query: 在代码库知识图谱中搜索符号/概念",
+    "- gitnexus_context: 获取单个符号的360度视图",
+    "- gitnexus_impact: 变更前分析影响面",
+    "- gitnexus_clusters: 读取代码库功能聚类",
+    "- gitnexus_processes: 列出或追踪代码库执行流",
+  ];
+  if (supervisorMode) {
+    lines.push(
+      "- spawn_code_executor: 将代码修改任务委派给子智能体",
+      "- spawn_explorer: 将代码库探索任务委派给 Flash Explorer 子智能体",
+    );
   }
-
-  const entries = fs.readdirSync(toolsDir);
-  const docs = entries
-    .filter((entry) => entry.endsWith(".md"))
-    .sort()
-    .map((entry) => {
-      const fullPath = path.join(toolsDir, entry);
-      try {
-        return fs.readFileSync(fullPath, "utf8").trim();
-      } catch {
-        return "";
-      }
-    })
-    .filter((content) => content.length > 0);
-
-  return docs.join("\n\n");
+  return lines.join("\n");
 }
 
 export function getSystemPrompt(projectRoot: string, options: PromptToolOptions = {}): string {
-  const toolDocs = readToolDocs(getExtensionRoot());
-  const basePrompt = toolDocs
-    ? `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolDocs}`
-    : SYSTEM_PROMPT_BASE;
+  const toolSummary = getToolSummary(options.supervisorMode ?? false);
+  const basePrompt = `${SYSTEM_PROMPT_BASE}\n\n# 可用工具\n\n${toolSummary}`;
   const skillsIndex = getSkillsIndex(projectRoot);
-  const supervisorExplorer = options.supervisorMode ? `\n\n${EXPLORER_GUIDANCE}` : "";
-  // EXPLORER_GUIDANCE 放在 runtimeContext 之后，确保两种模式的公共前缀一致，避免跨模式缓存失效
-  return `${basePrompt}${skillsIndex}\n\n${CODE_EXECUTOR_GUIDANCE}\n\n${getRuntimeContext(projectRoot)}${supervisorExplorer}`;
+  const supervisorBlock = options.supervisorMode
+    ? `\n\n${CODE_EXECUTOR_GUIDANCE}\n\n${EXPLORER_GUIDANCE}`
+    : "";
+  return `${basePrompt}${skillsIndex}${supervisorBlock}\n\n${getRuntimeContext(projectRoot)}`;
 }
 
 /** Supervisor-Worker 架构的行为指南，嵌入 system prompt。 */
