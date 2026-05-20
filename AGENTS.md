@@ -23,10 +23,16 @@
 /root/.nvm/versions/node/v22.22.2/bin/node --import tsx --test src/tests/xxx.test.ts
 ```
 
+## 注释
+- 写代码（JS/TS/Shell 等）必须使用中文注释
+- 发现已有代码中的英文注释，自动改为中文注释
+- JSDoc / TSDoc 描述也使用中文
+
 ## 禁止
 - 写 JS/TS 源码时使用中文引号 `""` → 用《》
 - 索引过期时反复 `gitnexus_query`
 - 修改代码后不跑相关测试
+- 写代码时使用英文注释
 
 ---
 

@@ -579,7 +579,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
           pattern: {
             type: "string",
             description:
-              "要在文件内容中搜索的文本或正则表达式模式。",
+              "要在文件内容中搜索的文本或正则表达式模式（BRE 基本正则）。多词 OR 请用 \\| 分隔，例如 'error\\|warning\\|fatal'。",
           },
           path: {
             type: "string",
@@ -912,7 +912,7 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     function: {
       name: "search_files",
       description:
-        "按文件名模式搜索文件。返回匹配文件路径列表。与 glob（按路径模式）和 grep（按内容）不同，search_files 专门搜索文件名包含指定文本的文件。对于'找包含 test 的文件'比 glob **/*test* 语义更清晰。",
+        "按文件名模式搜索文件。返回匹配文件路径列表。与 glob（按路径模式）和 grep（按内容）不同，search_files 专门搜索文件名包含指定文本的文件。注意：对根目录级文件或特定路径模式可能不如 glob 稳定，按文件名搜索优先使用 glob。",
       parameters: {
         type: "object",
         properties: {
