@@ -16,14 +16,21 @@ function isIndexed(projectRoot: string): boolean {
 }
 
 function shouldReindex(projectRoot: string): boolean {
-  const dir = getGitnexusDir(projectRoot);
-  if (!fs.existsSync(dir)) return true;
+  const metaPath = path.join(getGitnexusDir(projectRoot), "meta.json");
+  if (!fs.existsSync(metaPath)) return true;
   try {
-    const stat = fs.statSync(dir);
-    return Date.now() - stat.mtimeMs > MAX_INDEX_AGE_MS;
+    const raw = fs.readFileSync(metaPath, "utf8");
+    const meta = JSON.parse(raw) as { indexedAt?: string };
+    if (meta.indexedAt) {
+      const indexedTime = new Date(meta.indexedAt).getTime();
+      if (!isNaN(indexedTime)) {
+        return Date.now() - indexedTime > MAX_INDEX_AGE_MS;
+      }
+    }
   } catch {
-    return true;
+    // 解析失败则触发重新索引
   }
+  return true;
 }
 
 // ── 自动索引 (借鉴 RepoMap: 零配置体验) ──────────────────
@@ -373,7 +380,12 @@ async function withIndex(
 ): Promise<ToolExecutionResult> {
   const indexResult = await ensureIndex(context.projectRoot, context);
   if (!indexResult.ok) {
-    return { ok: false, name: "", error: indexResult.error };
+    // 降级：重新索引失败但已有索引数据时，继续使用现有索引
+    if (isIndexed(context.projectRoot)) {
+      // 继续执行，使用现有（可能过期但可用的）索引
+    } else {
+      return { ok: false, name: "", error: indexResult.error };
+    }
   }
   return fn();
 }

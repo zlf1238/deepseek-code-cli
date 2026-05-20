@@ -11,7 +11,6 @@ import { handleWebSearchTool } from "./web-search-handler";
 import { handleWriteTool } from "./write-handler";
 import { handleSkillLoadTool } from "./skill-load-handler";
 import { handleDirectoryTreeTool } from "./directory-tree-handler";
-import { handleAskChoiceTool } from "./ask-choice-handler";
 import { handleMultiEditTool } from "./multi-edit-handler";
 import { handleTodoWriteTool } from "./todo-write-handler";
 import { handleWebFetchTool } from "./web-fetch-handler";
@@ -207,8 +206,66 @@ export class ToolExecutor {
     this.toolHandlers.set("run_background", handleRunBackgroundTool);
     this.toolHandlers.set("job_output", handleJobOutputTool);
     this.toolHandlers.set("list_jobs", handleListJobsTool);
-    // ask_choice shares the same UX infrastructure as AskUserQuestion
-    this.toolHandlers.set("ask_choice", handleAskChoiceTool);
+    // ask_choice 委托到 AskUserQuestion 实现（共享同一 UI 基础设施）
+    this.toolHandlers.set("ask_choice", async (args, context) => {
+      // 将扁平参数转换为 AskUserQuestion 的嵌套格式
+      const question = typeof args.question === "string" ? args.question.trim() : "";
+      if (!question) {
+        return { ok: false, name: "ask_choice", error: 'Missing required "question" string.' };
+      }
+
+      const rawOptions = args.options;
+      if (!Array.isArray(rawOptions) || rawOptions.length === 0) {
+        return { ok: false, name: "ask_choice", error: '"options" must be a non-empty array.' };
+      }
+
+      if (rawOptions.length > 6) {
+        return { ok: false, name: "ask_choice", error: "Maximum 6 options allowed." };
+      }
+
+      const options: Array<{ label: string; description?: string }> = [];
+      for (let i = 0; i < rawOptions.length; i++) {
+        const opt = rawOptions[i];
+        if (!opt || typeof opt !== "object") {
+          return { ok: false, name: "ask_choice", error: `Option at index ${i} must be an object.` };
+        }
+        const label = typeof (opt as Record<string, unknown>).label === "string"
+          ? (opt as Record<string, unknown>).label as string
+          : "";
+        if (!label.trim()) {
+          return { ok: false, name: "ask_choice", error: `Option at index ${i} missing "label".` };
+        }
+        options.push({
+          label: label.trim(),
+          description: typeof (opt as Record<string, unknown>).description === "string"
+            ? (opt as Record<string, unknown>).description as string
+            : undefined,
+        });
+      }
+
+      const convertedArgs: Record<string, unknown> = {
+        questions: [{
+          question,
+          options,
+          multiSelect: args.multiSelect === true ? true : undefined,
+        }],
+      };
+
+      const result = await handleAskUserQuestionTool(convertedArgs, context);
+
+      // 重写 name 和 metadata.kind 以保持 ask_choice 兼容性
+      return {
+        ...result,
+        name: "ask_choice",
+        metadata: {
+          kind: "ask_choice",
+          question,
+          options,
+          multiSelect: args.multiSelect === true,
+          allowCustom: args.allowCustom !== false,
+        },
+      };
+    });
     this.toolHandlers.set("get_file_info", handleGetFileInfoTool);
     this.toolHandlers.set("stop_job", handleStopJobTool);
     this.toolHandlers.set("handle_read", handleHandleReadTool);
