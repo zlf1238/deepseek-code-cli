@@ -7,6 +7,7 @@ import type { ToolExecutionContext } from "../tools/executor";
 import { handleEditTool } from "../tools/edit-handler";
 import { handleReadTool } from "../tools/read-handler";
 import { handleWriteTool } from "../tools/write-handler";
+import { handleMultiEditTool } from "../tools/multi-edit-handler";
 
 const tempDirs: string[] = [];
 
@@ -390,6 +391,146 @@ test("Read returns an acknowledgement for images and attaches the image as a fol
     ),
     /^data:image\/png;base64,/
   );
+});
+
+// ==== multi_edit 工具测试 ====
+
+// 测试1: 单文件单次替换成功
+test("multi_edit 单文件单次替换成功", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = "sample.txt";
+  fs.writeFileSync(path.join(workspace, filePath), "hello world\nfoo bar\n", "utf8");
+
+  const result = await handleMultiEditTool(
+    { edits: [{ file_path: filePath, old_string: "foo bar", new_string: "baz qux" }] },
+    createContext("multi-edit-single", workspace)
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(path.join(workspace, filePath), "utf8"), "hello world\nbaz qux\n");
+  const edits = (result.metadata?.edits ?? []) as Array<{ replaced?: number }>;
+  assert.equal(edits[0]?.replaced, 1);
+});
+
+// 测试2: replace_all 替换所有匹配
+test("multi_edit replace_all 替换所有匹配", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = "data.txt";
+  fs.writeFileSync(path.join(workspace, filePath), "TODO\nTODO\nTODO\n", "utf8");
+
+  const result = await handleMultiEditTool(
+    { edits: [{ file_path: filePath, old_string: "TODO", new_string: "DONE", replace_all: true, expected_occurrences: 3 }] },
+    createContext("multi-edit-replaceall", workspace)
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(path.join(workspace, filePath), "utf8"), "DONE\nDONE\nDONE\n");
+  const edits = (result.metadata?.edits ?? []) as Array<{ replaced?: number }>;
+  assert.equal(edits[0]?.replaced, 3);
+});
+
+// 测试3: 多文件同时编辑成功
+test("multi_edit 多文件同时编辑成功", async () => {
+  const workspace = createTempWorkspace();
+  const aPath = "a.txt";
+  const bPath = "b.txt";
+  fs.writeFileSync(path.join(workspace, aPath), "alpha", "utf8");
+  fs.writeFileSync(path.join(workspace, bPath), "beta", "utf8");
+
+  const result = await handleMultiEditTool(
+    {
+      edits: [
+        { file_path: aPath, old_string: "alpha", new_string: "ALPHA" },
+        { file_path: bPath, old_string: "beta", new_string: "BETA" }
+      ]
+    },
+    createContext("multi-edit-multi-file", workspace)
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(path.join(workspace, aPath), "utf8"), "ALPHA");
+  assert.equal(fs.readFileSync(path.join(workspace, bPath), "utf8"), "BETA");
+  const edits = (result.metadata?.edits ?? []) as Array<{ ok?: boolean }>;
+  assert.equal(edits.length, 2);
+  assert.equal(edits[0]?.ok, true);
+  assert.equal(edits[1]?.ok, true);
+});
+
+// 测试4: 文件不存在时部分失败但其他继续
+test("multi_edit 文件不存在时部分失败但其他继续", async () => {
+  const workspace = createTempWorkspace();
+  const existsPath = "exists.txt";
+  fs.writeFileSync(path.join(workspace, existsPath), "content here", "utf8");
+
+  const result = await handleMultiEditTool(
+    {
+      edits: [
+        { file_path: "missing.txt", old_string: "x", new_string: "y" },
+        { file_path: existsPath, old_string: "content here", new_string: "updated" }
+      ]
+    },
+    createContext("multi-edit-partial-fail", workspace)
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(fs.readFileSync(path.join(workspace, existsPath), "utf8"), "updated");
+  const edits = (result.metadata?.edits ?? []) as Array<{ error?: string; ok?: boolean }>;
+  assert.match(edits[0]?.error ?? "", /File not found/i);
+  assert.equal(edits[1]?.ok, true);
+});
+
+// 测试5: old_string 未找到则失败
+test("multi_edit old_string 未找到则失败", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = "target.txt";
+  fs.writeFileSync(path.join(workspace, filePath), "present\n", "utf8");
+
+  const result = await handleMultiEditTool(
+    { edits: [{ file_path: filePath, old_string: "absent", new_string: "replaced" }] },
+    createContext("multi-edit-notfound", workspace)
+  );
+
+  assert.equal(result.ok, false);
+  const edits = (result.metadata?.edits ?? []) as Array<{ error?: string }>;
+  assert.match(edits[0]?.error ?? "", /old_string not found/i);
+});
+
+// 测试6: expected_occurrences 不匹配则失败
+test("multi_edit expected_occurrences 不匹配则失败", async () => {
+  const workspace = createTempWorkspace();
+  const filePath = "items.txt";
+  fs.writeFileSync(path.join(workspace, filePath), "item\nitem\n", "utf8");
+
+  const result = await handleMultiEditTool(
+    { edits: [{ file_path: filePath, old_string: "item", new_string: "x", replace_all: true, expected_occurrences: 99 }] },
+    createContext("multi-edit-expected-mismatch", workspace)
+  );
+
+  assert.equal(result.ok, false);
+  const edits = (result.metadata?.edits ?? []) as Array<{ error?: string }>;
+  assert.match(edits[0]?.error ?? "", /Expected 99 occurrences, found 2/);
+});
+
+// 测试7: 空 edits 数组返回错误
+test("multi_edit 空 edits 数组返回错误", async () => {
+  const result = await handleMultiEditTool(
+    { edits: [] },
+    createContext("multi-edit-empty", "/tmp")
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /non-empty array/i);
+});
+
+// 测试8: edit 缺少 file_path 返回错误
+test("multi_edit edit 缺少 file_path 返回错误", async () => {
+  const result = await handleMultiEditTool(
+    { edits: [{ old_string: "x", new_string: "y" }] },
+    createContext("multi-edit-missing-field", "/tmp")
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /missing "file_path"/i);
 });
 
 function createContext(

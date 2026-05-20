@@ -1,5 +1,6 @@
-import * as fs from "fs";
 import * as path from "path";
+import { readTextFileWithMetadata, writeTextFile } from "./file-utils";
+import { normalizeFilePath, recordFileState } from "./state";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 
 type EditOperation = {
@@ -32,6 +33,9 @@ export async function handleMultiEditTool(
     if (!filePath) {
       return { ok: false, name: "multi_edit", error: `Edit at index ${i} missing "file_path".` };
     }
+    if (oldStr === newStr) {
+      return { ok: false, name: "multi_edit", error: `Edit at index ${i}: new_string must differ from old_string.` };
+    }
     edits.push({
       file_path: path.isAbsolute(filePath) ? filePath : path.join(context.projectRoot, filePath),
       old_string: oldStr,
@@ -45,11 +49,22 @@ export async function handleMultiEditTool(
 
   for (const edit of edits) {
     try {
-      if (!fs.existsSync(edit.file_path)) {
+      const absPath = normalizeFilePath(edit.file_path);
+      if (!path.isAbsolute(absPath)) {
+        results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "file_path must be absolute" });
+        continue;
+      }
+
+      // 使用 file-utils 读取（自动检测编码+换行符）
+      let metadata: { content: string; encoding: string; lineEndings: string; timestamp: number };
+      try {
+        metadata = readTextFileWithMetadata(absPath);
+      } catch {
         results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "File not found" });
         continue;
       }
-      const content = fs.readFileSync(edit.file_path, "utf8");
+
+      const content = metadata.content;
 
       if (edit.replace_all) {
         const expected = edit.expected_occurrences;
@@ -65,7 +80,14 @@ export async function handleMultiEditTool(
         }
         const newContent = content.split(edit.old_string).join(edit.new_string);
         const replaced = countOccurrences(content, edit.old_string);
-        fs.writeFileSync(edit.file_path, newContent, "utf8");
+        writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
+        recordFileState(context.sessionId, {
+          filePath: absPath,
+          content: newContent,
+          timestamp: Date.now(),
+          encoding: metadata.encoding,
+          lineEndings: metadata.lineEndings,
+        });
         results.push({ file_path: edit.file_path, ok: true, replaced });
       } else {
         const index = content.indexOf(edit.old_string);
@@ -74,7 +96,14 @@ export async function handleMultiEditTool(
           continue;
         }
         const newContent = content.slice(0, index) + edit.new_string + content.slice(index + edit.old_string.length);
-        fs.writeFileSync(edit.file_path, newContent, "utf8");
+        writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
+        recordFileState(context.sessionId, {
+          filePath: absPath,
+          content: newContent,
+          timestamp: Date.now(),
+          encoding: metadata.encoding,
+          lineEndings: metadata.lineEndings,
+        });
         results.push({ file_path: edit.file_path, ok: true, replaced: 1 });
       }
     } catch (err) {
