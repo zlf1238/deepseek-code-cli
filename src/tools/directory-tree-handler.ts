@@ -105,7 +105,8 @@ function buildTreeWithFind(root: string, maxDepth: number, projectRoot: string):
   args.push("-maxdepth", String(maxDepth));
 
   // Include both files and directories
-  args.push("\\(", "-type", "f", "-o", "-type", "d", "\\)", "-print");
+  // NOTE: spawn does not use a shell, so find grouping uses bare ( ) not \( \).
+  args.push("(", "-type", "f", "-o", "-type", "d", ")", "-print");
 
   const stdout = spawnAndCapture("find", args);
   const rawPaths = stdout

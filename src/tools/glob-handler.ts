@@ -30,14 +30,14 @@ function buildFindArgs(pattern: string, dir: string): string[] {
   }
 
   if (pruneExprs.length > 0) {
-    args.push("\\(");
+    args.push("(");
     for (let i = 0; i < pruneExprs.length; i += 2) {
       if (i > 0) {
         args.push("-o");
       }
       args.push(pruneExprs[i], pruneExprs[i + 1]);
     }
-    args.push("\\)", "-prune", "-o");
+    args.push(")", "-prune", "-o");
   }
 
   // Depth: if pattern has no slash (just "*.ts"), limit to current dir by default
