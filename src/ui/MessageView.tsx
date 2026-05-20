@@ -6,9 +6,33 @@ import type { SessionMessage } from "../session";
 type Props = {
   message: SessionMessage;
   verboseMode?: boolean;
+  /** Whether this thinking message is expanded (showing full content) */
+  isExpanded?: boolean;
+  /** Callback when user wants to toggle expand/collapse */
+  onToggle?: () => void;
+  /** Index of this thinking message (1-based, for display) */
+  thinkingIndex?: number;
+  /** Total count of thinking messages */
+  totalThinkingCount?: number;
 };
 
-export function MessageView({ message, verboseMode }: Props): React.ReactElement | null {
+/**
+ * Estimate token count from reasoning text length.
+ * Rough: ~4 chars per token for Chinese text, ~5 for English.
+ */
+function estimateTokens(text: string): number {
+  const charCount = text.length;
+  return Math.round(charCount / 4.5);
+}
+
+export function MessageView({
+  message,
+  verboseMode,
+  isExpanded,
+  onToggle,
+  thinkingIndex,
+  totalThinkingCount,
+}: Props): React.ReactElement | null {
   if (!message.visible) {
     return null;
   }
@@ -30,30 +54,61 @@ export function MessageView({ message, verboseMode }: Props): React.ReactElement
     const content = (message.content || "").trim();
     const reasoningContent = getReasoningContent(message);
 
-    // Verbose mode: show thinking process for asThinking messages
+    // ── asThinking 消息（纯思考过程） ──
     if (isThinking) {
-      if (verboseMode && reasoningContent) {
+      // 非 verbose 模式：完全隐藏
+      if (!verboseMode) {
+        return null;
+      }
+      if (!reasoningContent) {
+        return null;
+      }
+
+      // 已折叠：显示摘要行
+      if (!isExpanded) {
+        const tokens = estimateTokens(reasoningContent);
+        const indexLabel = totalThinkingCount && totalThinkingCount > 1
+          ? ` (${thinkingIndex}/${totalThinkingCount})`
+          : "";
         return (
           <Box flexDirection="column" marginY={0}>
-            <Text dimColor>{`  ▸ 思考过程`}</Text>
-            <Box marginLeft={4} flexDirection="column">
-              <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
-            </Box>
+            <Text dimColor>
+              {`  ▸ 思考过程${indexLabel} (${tokens} tokens) [按⏎展开]`}
+            </Text>
           </Box>
         );
       }
-      return null;
+
+      // 已展开：显示完整内容
+      return (
+        <Box flexDirection="column" marginY={0}>
+          <Box flexDirection="row">
+            <Text dimColor>{`  ▸ 思考过程`}</Text>
+            <Text dimColor>{` [按⏎折叠]`}</Text>
+          </Box>
+          <Box marginLeft={4} flexDirection="column">
+            <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+          </Box>
+        </Box>
+      );
     }
 
+    // ── 普通 assistant 消息（含 reasoning 时在 verbose 模式下展示思考过程） ──
     return (
       <Box flexDirection="column" marginY={0}>
         <Text color="cyan" bold>Assistant</Text>
         {verboseMode && reasoningContent ? (
           <Box marginLeft={2} flexDirection="column">
-            <Text dimColor>{`  ▸ 思考过程`}</Text>
-            <Box marginLeft={2} flexDirection="column">
-              <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
-            </Box>
+            {isExpanded ? (
+              <>
+                <Text dimColor>{`  ▸ 思考过程 [按⏎折叠]`}</Text>
+                <Box marginLeft={2} flexDirection="column">
+                  <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+                </Box>
+              </>
+            ) : (
+              <Text dimColor>{`  ▸ 思考过程 (${estimateTokens(reasoningContent)} tokens) [按⏎展开]`}</Text>
+            )}
           </Box>
         ) : null}
         <Box marginLeft={2} flexDirection="column">

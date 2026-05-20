@@ -67,14 +67,44 @@ function parseAskUserQuestionContent(content: string | null): AskUserQuestionIte
     if (parsed.awaitUserResponse !== true) {
       return [];
     }
-    const metadata = parsed.metadata as { kind?: unknown; questions?: unknown } | null;
-    if (!metadata || metadata.kind !== "ask_user_question") {
+    const metadata = parsed.metadata as Record<string, unknown> | null;
+    if (!metadata) {
       return [];
     }
-    return normalizeQuestions(metadata.questions);
+
+    // ask_user_question: { kind: "ask_user_question", questions: [...] }
+    if (metadata.kind === "ask_user_question") {
+      return normalizeQuestions((metadata as { questions?: unknown }).questions);
+    }
+
+    // ask_choice: { kind: "ask_choice", question, options, multiSelect, allowCustom }
+    if (metadata.kind === "ask_choice") {
+      return normalizeAskChoice(metadata);
+    }
+
+    return [];
   } catch {
     return [];
   }
+}
+
+function normalizeAskChoice(metadata: Record<string, unknown>): AskUserQuestionItem[] {
+  const question = typeof metadata.question === "string" ? metadata.question.trim() : "";
+  if (!question) {
+    return [];
+  }
+  const rawOptions = metadata.options;
+  if (!Array.isArray(rawOptions) || rawOptions.length === 0) {
+    return [];
+  }
+  const options: AskUserQuestionOption[] = rawOptions
+    .map((opt) => normalizeOption(opt))
+    .filter((opt): opt is AskUserQuestionOption => Boolean(opt));
+  if (options.length === 0) {
+    return [];
+  }
+  const multiSelect = typeof metadata.multiSelect === "boolean" ? metadata.multiSelect : undefined;
+  return [{ question, multiSelect, options }];
 }
 
 function normalizeQuestions(raw: unknown): AskUserQuestionItem[] {

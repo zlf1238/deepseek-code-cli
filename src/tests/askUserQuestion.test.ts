@@ -79,3 +79,46 @@ test("formatAskUserQuestionAnswers creates model-readable answer text", () => {
 test("formatAskUserQuestionDecline creates decline text", () => {
   assert.match(formatAskUserQuestionDecline(), /declined to answer/);
 });
+
+test("findPendingAskUserQuestion recognizes ask_choice tool messages", () => {
+  const pending = findPendingAskUserQuestion([
+    message({
+      ok: true,
+      name: "ask_choice",
+      awaitUserResponse: true,
+      metadata: {
+        kind: "ask_choice",
+        question: "What approach should we take?",
+        options: [
+          { id: "A", label: "Option A", description: "First approach" },
+          { id: "B", label: "Option B" }
+        ],
+        multiSelect: false,
+        allowCustom: true
+      }
+    })
+  ], "waiting_for_user");
+
+  assert.equal(pending?.messageId, "tool-message");
+  assert.equal(pending?.questions[0]?.question, "What approach should we take?");
+  assert.equal(pending?.questions[0]?.options.length, 2);
+  assert.equal(pending?.questions[0]?.options[0]?.label, "Option A");
+  assert.equal(pending?.questions[0]?.multiSelect, false);
+});
+
+test("findPendingAskUserQuestion ignores ask_choice when status is not waiting_for_user", () => {
+  const pending = findPendingAskUserQuestion([
+    message({
+      ok: true,
+      name: "ask_choice",
+      awaitUserResponse: true,
+      metadata: {
+        kind: "ask_choice",
+        question: "Continue?",
+        options: [{ label: "Yes" }]
+      }
+    })
+  ], "processing");
+
+  assert.equal(pending, null);
+});

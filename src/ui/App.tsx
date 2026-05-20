@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -22,6 +22,7 @@ import { resolveSettings, getAvailableModelNames, updateActiveModelInSettings, u
 import type { PricingSnapshot } from "../model-capabilities";
 import { PromptInput, type PromptSubmission } from "./PromptInput";
 import { MessageView } from "./MessageView";
+import { useThinkingExpanded } from "./thinkingState";
 import { SessionList } from "./SessionList";
 import { buildLoadingText } from "./loadingText";
 import { WelcomeScreen } from "./WelcomeScreen";
@@ -127,6 +128,43 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
 
   // Verbose mode state (show thinking process & all tool calls)
   const [verboseMode, setVerboseMode] = useState<boolean>(readSettings()?.verboseMode ?? false);
+
+  // Collapsible thinking blocks
+  const thinking = useThinkingExpanded(messages);
+  const [thinkingRenderKey, setThinkingRenderKey] = useState(0);
+
+  // Keyboard shortcuts for collapsible thinking blocks
+  // NOTE: clearTerminal() is required before each toggle because
+  // setThinkingRenderKey changes <Static>'s key, which causes Ink to
+  // re-mount Static and re-render all items. Without clearing first,
+  // old terminal output from the previous Static instance persists,
+  // resulting in duplicated messages on screen.
+  useInput(
+    (input, key) => {
+      if (input === "e") {
+        clearTerminal();
+        thinking.expandAll();
+        setThinkingRenderKey((k) => k + 1);
+      } else if (input === "c") {
+        clearTerminal();
+        thinking.collapseAll();
+        setThinkingRenderKey((k) => k + 1);
+      } else if (input === "t") {
+        // Toggle the latest thinking block
+        if (thinking.latestThinkingId) {
+          clearTerminal();
+          thinking.toggle(thinking.latestThinkingId);
+          setThinkingRenderKey((k) => k + 1);
+        }
+      } else if (key.return && thinking.latestThinkingId) {
+        // Enter key toggles the latest thinking block (matches [按⏎展开/折叠] hint)
+        clearTerminal();
+        thinking.toggle(thinking.latestThinkingId);
+        setThinkingRenderKey((k) => k + 1);
+      }
+    },
+    { isActive: verboseMode && !busy && view === "chat" }
+  );
 
   const messagesRef = useRef<SessionMessage[]>([]);
   messagesRef.current = messages;
@@ -431,7 +469,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     pendingQuestion && !dismissedQuestionIds.has(pendingQuestion.messageId)
   );
   // 只保留最新的步骤指示器和最新的 tool 消息，历史指示器和历史 tool 消息隐藏
-  // verbose 模式下展示所有 tool 消息和思考过程
+  // verbose 模式下展示所有 tool 消息，思考过程根据 isExpanded 状态展示折叠/展开视图
   const displayMessages = useMemo(() => {
     if (verboseMode) return messages;
     let lastStepIdx = -1;
@@ -510,14 +548,31 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           width={screenWidth}
         />
       ) : null}
-      <Static key={`messages-${staticKey}`} items={displayMessages}>
-        {(message) => (
-          <MessageView
-            key={message.id}
-            message={message}
-            verboseMode={verboseMode}
-          />
-        )}
+      <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
+        {(message) => {
+          // 计算思考过程序号（仅用于 asThinking 消息）
+          let thinkingIdx: number | undefined;
+          let thinkingTotal: number | undefined;
+          if (verboseMode && message.role === "assistant" && message.meta?.asThinking) {
+            thinkingTotal = thinking.thinkingCount;
+            const idx = thinking.thinkingIds.indexOf(message.id);
+            if (idx !== -1) thinkingIdx = thinkingTotal - idx; // 倒序（最新为 1）
+          }
+          return (
+            <MessageView
+              key={message.id}
+              message={message}
+              verboseMode={verboseMode}
+              isExpanded={thinking.isExpanded(message.id)}
+              onToggle={() => {
+                thinking.toggle(message.id);
+                setThinkingRenderKey((k) => k + 1);
+              }}
+              thinkingIndex={thinkingIdx}
+              totalThinkingCount={thinkingTotal}
+            />
+          );
+        }}
       </Static>
       {statusLine ? (
         <Box>
@@ -527,6 +582,11 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       {errorLine ? (
         <Box>
           <Text color="red">Error: {errorLine}</Text>
+        </Box>
+      ) : null}
+      {verboseMode && !busy && view === "chat" && thinking.thinkingCount > 0 ? (
+        <Box>
+          <Text dimColor>{`  [e]展开全部 · [c]折叠全部 · [t]切换最新思考  (${thinking.thinkingCount}条思考)`}</Text>
         </Box>
       ) : null}
       {view === "session-list" ? (
