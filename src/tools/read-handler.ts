@@ -284,8 +284,8 @@ export async function handleReadTool(
     const snippet = createSnippet(
       context.sessionId,
       filePath,
-      1, // snippet 始终从第 1 行开始
-      snippetEndLine, // 覆盖全缓存范围
+      textResult.startLine,
+      snippetEndLine,
       textResult.output.length > 500
         ? textResult.output.slice(0, 500)
         : textResult.output

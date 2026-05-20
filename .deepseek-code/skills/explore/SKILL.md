@@ -23,7 +23,6 @@ runAs: subagent
 
 ## 防错
 
-- `search_files` 只搜文件名——不要用它找调用关系
 - 不要对同一个文件多次 read_file——一次读够范围
 - GitNexus 工具能回答 80% 的问题，不要把预算浪费在逐文件 grep 上
 

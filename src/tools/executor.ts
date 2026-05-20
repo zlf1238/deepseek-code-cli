@@ -16,7 +16,6 @@ import { handleMultiEditTool } from "./multi-edit-handler";
 import { handleTodoWriteTool } from "./todo-write-handler";
 import { handleWebFetchTool } from "./web-fetch-handler";
 import { handleRunBackgroundTool, handleJobOutputTool, handleListJobsTool, handleStopJobTool } from "./background-job-handler";
-import { handleSearchFilesTool } from "./search-files-handler";
 import { handleGetFileInfoTool } from "./get-file-info-handler";
 import { handleHandleReadTool } from "./handle-read-handler";
 import { handleRetrieveToolResultTool } from "./retrieve-tool-result-handler";
@@ -110,7 +109,7 @@ export class ToolExecutor {
 
   /** 借鉴 Reasonix: 只读工具可并行安全执行。写入/交互工具必须串行。 */
   private static readonly PARALLEL_SAFE_TOOLS = new Set([
-    "read", "glob", "grep", "directory_tree", "search_files",
+    "read", "glob", "grep", "directory_tree",
     "get_file_info", "web_fetch", "WebSearch", "SkillLoad",
     "list_jobs", "job_output",
     "handle_read", "retrieve_tool_result",
@@ -210,7 +209,6 @@ export class ToolExecutor {
     this.toolHandlers.set("list_jobs", handleListJobsTool);
     // ask_choice shares the same UX infrastructure as AskUserQuestion
     this.toolHandlers.set("ask_choice", handleAskChoiceTool);
-    this.toolHandlers.set("search_files", handleSearchFilesTool);
     this.toolHandlers.set("get_file_info", handleGetFileInfoTool);
     this.toolHandlers.set("stop_job", handleStopJobTool);
     this.toolHandlers.set("handle_read", handleHandleReadTool);

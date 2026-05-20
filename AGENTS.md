@@ -55,13 +55,7 @@
 - **解决**：内置 `grep` 返回 `(no matches)` 一次就立刻切 `bash grep`。空结果本身是明确的失败信号，无需换 pattern 二次确认。
 - **补充**：条目 #1 的 `-H` bug 修复后，内置 `grep` 单文件搜索已可靠，大部分场景无需回退。但仍遵循"一次空就切"原则以防其他未知边界情况。
 
-## 3. `search_files` 不如 `glob` 可靠，优先用 `glob`
-
-- **现象**：`search_files "models.generated.ts"` 返回空（找不到），但 `glob "**/*models*generated*"` 立即找到。
-- **原因**：`search_files` 对根目录级文件或特定路径模式匹配不如 `glob` 稳定。
-- **解决**：按文件名模式搜索文件位置时，优先用 `glob`。`search_files` 仅在有明确文件名片段需要语义模糊匹配时使用。
-
-## 4. 已知行号时，多个 `handle_read` 可并行
+## 3. 已知行号时，多个 `handle_read` 可并行
 
 - **现象**：查价格时，先用 `bash grep -n` 获得了所有 deepseek 模型的行号，之后串行调用了 9 次 `handle_read` 逐段读取。
 - **原因**：习惯性串行，未意识到 `handle_read` 之间无依赖关系（读取的是同一文件的不同区域）。

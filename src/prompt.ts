@@ -118,7 +118,6 @@ function getToolSummary(supervisorMode: boolean): string {
     "- directory_tree: 树形列出目录内容",
     "- get_file_info: 获取文件元信息（大小、行数、修改时间）",
     "- handle_read: 按 snippet_id 读取之前已读文件的其他行范围（仅Read截断后使用）",
-    "- search_files: 按文件名模式搜索",
     "- multi_edit: 一次原子操作中编辑多个文件",
     "- SkillLoad: 按需加载技能（Skill）完整内容",
     "- AskUserQuestion: 向用户提问以获取澄清或做出决策",
@@ -907,33 +906,6 @@ export function getTools(_options: PromptToolOptions = {}): ToolDefinition[] {
     },
   });
 
-  tools.push({
-    type: "function",
-    function: {
-      name: "search_files",
-      description:
-        "按文件名模式搜索文件。返回匹配文件路径列表。与 glob（按路径模式）和 grep（按内容）不同，search_files 专门搜索文件名包含指定文本的文件。注意：对根目录级文件或特定路径模式可能不如 glob 稳定，按文件名搜索优先使用 glob。",
-      parameters: {
-        type: "object",
-        properties: {
-          pattern: {
-            type: "string",
-            description: "文件名中要匹配的文本。例如 'test' 匹配 test.ts, user.test.tsx, test-helper.js 等。",
-          },
-          path: {
-            type: "string",
-            description: "搜索起始目录。默认为项目根目录。",
-          },
-          caseSensitive: {
-            type: "boolean",
-            description: "是否区分大小写。默认 false。",
-          },
-        },
-        required: ["pattern"],
-        additionalProperties: false,
-      },
-    },
-  });
 
   tools.push({
     type: "function",
