@@ -1939,9 +1939,9 @@ The candidate skills are as follows:\n\n`;
       // 2. 执行这一个 tool call
       const toolName = getName(rawTc);
 
-      // spawn_code_executor / spawn_explorer 开始通知（UI 可见，不进入 API 历史）
-      if (toolName === "spawn_code_executor" || toolName === "spawn_explorer") {
-        const label = toolName === "spawn_explorer" ? "[Explorer]" : "[委派执行]";
+      // spawn_code_executor 开始通知（UI 可见，不进入 API 历史）
+      if (toolName === "spawn_code_executor") {
+        const label = "[委派执行]";
         const taskParam = (rawTc as { function?: { arguments?: string } })?.function?.arguments;
         let taskPreview = "";
         try {
@@ -1977,8 +1977,7 @@ The candidate skills are as follows:\n\n`;
 
       // 合并子智能体 usage 到 session 的 usageByModel
       if (
-        (execution.result.name === "spawn_code_executor" ||
-         execution.result.name === "spawn_explorer") &&
+        execution.result.name === "spawn_code_executor" &&
         execution.result.metadata?.subagentUsage
       ) {
         const meta = execution.result.metadata!;
@@ -2001,7 +2000,7 @@ The candidate skills are as follows:\n\n`;
         });
 
         // 子智能体完成 UI 通知
-        const label = execution.result.name === "spawn_explorer" ? "[Explorer]" : "[委派执行]";
+        const label = "[委派执行]";
         const elapsed = sElapsedMs >= 60000
           ? `${Math.floor(sElapsedMs / 60000)}m${Math.round((sElapsedMs % 60000) / 1000)}s`
           : `${(sElapsedMs / 1000).toFixed(1)}s`;
@@ -2045,7 +2044,7 @@ The candidate skills are as follows:\n\n`;
           false
         );
       } else if (
-        (execution.result.name === "spawn_code_executor" || execution.result.name === "spawn_explorer") &&
+        execution.result.name === "spawn_code_executor" &&
         !execution.result.ok
       ) {
         // 子智能体失败通知：展示失败码

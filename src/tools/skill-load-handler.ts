@@ -4,7 +4,6 @@ import * as path from "path";
 import matter from "gray-matter";
 import type { ToolExecutionContext, ToolExecutionResult, ToolExecutionFollowUpMessage } from "./executor";
 import { runSkillSubagent } from "./code-executor";
-import { EXPLORER_SYSTEM } from "./code-executor";
 
 export async function handleSkillLoadTool(
   args: Record<string, unknown>,
@@ -42,19 +41,6 @@ export async function handleSkillLoadTool(
   }
 
   if (!body || !skillPath) {
-    // ── 内置 explore skill 回退 ──
-    if (name === "explore") {
-      return await runSkillSubagent(
-        context,
-        EXPLORER_SYSTEM,
-        `Execute the "explore" skill on the current project.`,
-        undefined,
-        undefined,
-        undefined,
-        context.shouldStop,
-        "SkillLoad",
-      );
-    }
     // Build available names list for a helpful error
     const availableNames = collectAvailableSkillNames(context.projectRoot);
     return {
@@ -74,19 +60,6 @@ export async function handleSkillLoadTool(
     runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
     skillContent = parsed.content;
   } catch {
-    // SKILL.md 存在但解析失败 — explore skill 回退到内置 EXPLORER_SYSTEM
-    if (name === "explore") {
-      return await runSkillSubagent(
-        context,
-        EXPLORER_SYSTEM,
-        `Execute the "explore" skill on the current project.`,
-        undefined,
-        undefined,
-        undefined,
-        context.shouldStop,
-        "SkillLoad",
-      );
-    }
     return {
       ok: false,
       name: "SkillLoad",

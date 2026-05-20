@@ -1,5 +1,5 @@
 import * as path from "path";
-import { readTextFileWithMetadata, writeTextFile } from "./file-utils";
+import { readTextFileWithMetadata, writeTextFile, type FileReadMetadata } from "./file-utils";
 import { normalizeFilePath, recordFileState } from "./state";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 
@@ -56,7 +56,7 @@ export async function handleMultiEditTool(
       }
 
       // 使用 file-utils 读取（自动检测编码+换行符）
-      let metadata: { content: string; encoding: string; lineEndings: string; timestamp: number };
+      let metadata: FileReadMetadata;
       try {
         metadata = readTextFileWithMetadata(absPath);
       } catch {

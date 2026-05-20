@@ -13,11 +13,11 @@ test("getTools includes spawn_code_executor only when supervisorMode is true", (
   // 不硬编码具体数字 —— 工具数量随新增功能自然增长
   assert.ok(defaultNames.length >= 22);
 
-  // supervisorMode=true → 注册 spawn_code_executor + spawn_explorer
+  // supervisorMode=true → 注册 spawn_code_executor
   const supervisorNames = getTools({ supervisorMode: true }).map((tool) => tool.function.name);
   assert.equal(supervisorNames.includes("spawn_code_executor"), true);
-  assert.equal(supervisorNames.includes("spawn_explorer"), true);
-  assert.equal(supervisorNames.length, defaultNames.length + 2);
+  assert.equal(supervisorNames.includes("spawn_explorer"), false);
+  assert.equal(supervisorNames.length, defaultNames.length + 1);
 
   // supervisorMode=false → 不注册
   const noSupervisorNames = getTools({ supervisorMode: false }).map((tool) => tool.function.name);
@@ -37,10 +37,10 @@ test("getSystemPrompt 返回精简后的 prompt（工具摘要式），且 super
   assert.equal(defaultPrompt.includes("Supervisor-Worker 模式"), false);
   assert.equal(defaultPrompt.includes("委派 Explorer"), false);
 
-  // Supervisor 模式 → 应注入 CODE_EXECUTOR_GUIDANCE + EXPLORER_GUIDANCE
+  // Supervisor 模式 → 应注入 CODE_EXECUTOR_GUIDANCE
   const supervisorPrompt = getSystemPrompt("/tmp/project", { supervisorMode: true });
   assert.equal(supervisorPrompt.includes("Supervisor-Worker 模式"), true);
-  assert.equal(supervisorPrompt.includes("委派 Explorer"), true);
+  assert.equal(supervisorPrompt.includes("委派 Explorer"), false);
   // 条件注入不影响公共前缀（缓存友好）
   assert.equal(supervisorPrompt.includes("交互式 CLI 工具"), true);
   assert.equal(supervisorPrompt.includes("- Bash:"), true);

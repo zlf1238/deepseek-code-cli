@@ -3,6 +3,20 @@ import * as path from "path";
 import * as fs from "fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 
+/** 构造抑制 npm 警告的环境变量 */
+function suppressNpmWarnEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, npm_config_loglevel: "error" };
+}
+
+/** 过滤 stderr 中的 npm 警告行，返回有意义的内容 */
+function filterNpmWarnings(stderr: string): string {
+  return stderr
+    .split("\n")
+    .filter((line) => !line.startsWith("npm warn") && !line.startsWith("npm notice"))
+    .join("\n")
+    .trim();
+}
+
 // ── 索引状态管理 ────────────────────────────────────────
 const MAX_INDEX_AGE_MS = 30 * 60 * 1000; // 30分钟过期
 const INDEX_LOCK = new Map<string, Promise<{ ok: boolean; error?: string }>>();
@@ -55,7 +69,7 @@ async function ensureIndex(
       ["-y", "gitnexus@latest", "analyze", "--skip-embeddings", projectRoot],
       {
         cwd: projectRoot,
-        env: process.env,
+        env: suppressNpmWarnEnv(),
         stdio: ["ignore", "pipe", "pipe"],
         timeout: 120_000
       }
@@ -71,7 +85,7 @@ async function ensureIndex(
       if (code === 0) {
         resolve({ ok: true });
       } else {
-        const errMsg = stderr.slice(0, 500).replace(/\n/g, " ");
+        const errMsg = filterNpmWarnings(stderr).slice(0, 500).replace(/\n/g, " ");
         resolve({ ok: false, error: `GitNexus indexing failed (exit ${code}): ${errMsg}` });
       }
     });
@@ -120,7 +134,7 @@ class GitnexusMCPOneShot {
 
       this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
         cwd: this.projectRoot,
-        env: process.env,
+        env: suppressNpmWarnEnv(),
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 60_000
       });
@@ -141,7 +155,8 @@ class GitnexusMCPOneShot {
 
       this.proc.on("close", (code) => {
         if (this.pendingReject) {
-          const msg = stderrAcc.trim() || `GitNexus MCP exited with code ${code}`;
+          const filtered = filterNpmWarnings(stderrAcc);
+          const msg = filtered || `GitNexus MCP exited with code ${code}`;
           reject(new Error(msg || "GitNexus MCP closed unexpectedly"));
         }
       });
@@ -169,7 +184,7 @@ class GitnexusMCPOneShot {
 
       this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
         cwd: this.projectRoot,
-        env: process.env,
+        env: suppressNpmWarnEnv(),
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 60_000
       });
@@ -190,7 +205,8 @@ class GitnexusMCPOneShot {
 
       this.proc.on("close", (code) => {
         if (this.pendingReject) {
-          const msg = stderrAcc.trim() || `GitNexus MCP exited with code ${code}`;
+          const filtered = filterNpmWarnings(stderrAcc);
+          const msg = filtered || `GitNexus MCP exited with code ${code}`;
           reject(new Error(msg || "GitNexus MCP closed unexpectedly"));
         }
       });
@@ -513,22 +529,48 @@ export async function handleGitnexusProcesses(
 }
 
 // ── Session 初始化用：后台异步索引 ──────────────────────
+/** 正在进行的索引任务（按 projectRoot 去重，防止并行重复 spawn）。 */
+const pendingIndexTasks = new Map<string, Promise<void>>();
+
 export function ensureGitnexusIndexAsync(projectRoot: string): void {
   // 后台静默索引，不阻塞会话启动
   if (isIndexed(projectRoot) && !shouldReindex(projectRoot)) return;
 
-  const child = spawn(
-    "npx",
-    ["-y", "gitnexus@latest", "analyze", "--skip-embeddings", projectRoot],
-    {
-      cwd: projectRoot,
-      env: process.env,
-      stdio: "ignore",
-      timeout: 120_000
-    }
-  );
+  // 同一个 projectRoot 只允许一个索引任务进行中
+  const existing = pendingIndexTasks.get(projectRoot);
+  if (existing !== undefined) {
+    // 已有进行中的索引任务，不重复触发
+    existing.catch(() => {});
+    return;
+  }
 
-  child.on("error", () => {
-    // 静默失败——索引失败不影响工具使用 (每次调用时仍会尝试)
+  const task = new Promise<void>((resolve) => {
+    const child = spawn(
+      "npx",
+      ["-y", "gitnexus@latest", "analyze", "--skip-embeddings", projectRoot],
+      {
+        cwd: projectRoot,
+        env: process.env,
+        stdio: "ignore",
+        timeout: 120_000
+      }
+    );
+
+    // 后台任务不阻止 Node 进程退出（fire-and-forget）
+    child.unref();
+
+    const cleanup = () => {
+      pendingIndexTasks.delete(projectRoot);
+      resolve();
+    };
+
+    child.on("close", cleanup);
+    child.on("error", () => {
+      // 静默失败——索引失败不影响工具使用（每次调用时仍会尝试）
+      cleanup();
+    });
   });
+
+  pendingIndexTasks.set(projectRoot, task);
+  task.catch(() => {});
 }
