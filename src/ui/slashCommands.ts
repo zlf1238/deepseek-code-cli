@@ -1,6 +1,6 @@
 import type { SkillInfo } from "../session";
 
-export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoSwitch" | "verbose" | "new" | "resume" | "exit";
+export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoSwitch" | "verbose" | "new" | "resume" | "exit" | "learn" | "worklog";
 
 export type SlashCommandItem = {
   kind: SlashCommandKind;
@@ -58,6 +58,18 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
     name: "exit",
     label: "/exit",
     description: "退出 DeepSeek Code CLI"
+  },
+  {
+    kind: "learn",
+    name: "learn",
+    label: "/learn",
+    description: "从本轮对话的错误中学习，总结并写入 AGENTS.md"
+  },
+  {
+    kind: "worklog",
+    name: "worklog",
+    label: "/worklog",
+    description: "总结本轮对话的决策过程，生成工作日志到 docs/developers/worklogs"
   }
 ];
 

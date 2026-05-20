@@ -663,6 +663,60 @@ export function PromptInput({
       onSubmit({ text: "", imageUrls: [], command: "exit" });
       return;
     }
+    if (item.kind === "learn") {
+      clearSlashToken();
+      const learnPrompt = [
+        "请回顾本轮对话，从以下维度反思并总结改进经验：",
+        "",
+        "1. 工具调用失败 — exitCode 非零、rtk 拦截、空结果、超时等",
+        "2. 工具选择 — 是否用了最优工具？（如：该用 gitnexus_query 却用了 grep）",
+        "3. 重复调用 — 是否多次调用同一工具获取相同信息？",
+        "4. 违反规则 — 是否违反了 AGENTS.md 或系统 prompt 中的已知规则？",
+        "5. 推理冗余 — 是否探索了错误方向、做了无用功？",
+        "6. 并行机会 — 是否有本可并行的调用却串行执行了？",
+        "7. 上下文浪费 — 是否读取了大量无关文件，挤压了有效上下文？",
+        "8. 更优方案 — 如果换一种思路，是否能更高效地完成任务？",
+        "",
+        "步骤：",
+        "1. 先用 read 读取 AGENTS.md 的《实战经验手册》，了解已有条目，避免重复",
+        "2. 回顾本轮对话，逐维度检查",
+        "3. 将新模式总结为经验条目（沿用现有格式：现象、原因、解决）",
+        "4. 用 edit 追加到《实战经验手册》末尾",
+        "",
+        "只总结本轮新出现的、尚未被记录的模式。",
+        "修改后的 AGENTS.md 将在下一个新会话中生效。"
+      ].join("\n");
+      onSubmit({ text: learnPrompt, imageUrls: [], selectedSkills: [] });
+      return;
+    }
+    if (item.kind === "worklog") {
+      clearSlashToken();
+      const worklogPrompt = [
+        "请回顾本轮对话，将决策过程总结为工作日志文档。",
+        "",
+        "步骤：",
+        "1. 先 read 一份现有文档（如 docs/developers/worklogs 下任一 .md）了解格式",
+        "2. 回顾本轮对话，梳理关键决策点：",
+        "   - 遇到了什么问题？",
+        "   - 考虑了哪些方案？各自的优缺点？",
+        "   - 最终选了哪个方案？为什么？",
+        "   - 涉及哪些文件修改？",
+        "3. 按以下结构组织文档：",
+        "   - 标题（概括主题）",
+        "   - 一句话概述",
+        "   - 一、问题背景（含表格）",
+        "   - 二、决策思路（含方案对比表：方案 | 描述 | 优点 | 缺点）",
+        "   - 三、方案设计（含代码片段）",
+        "   - 四、文件修改统计",
+        "   - 五、相关文件",
+        "4. 文件名格式：主题关键词 - 决策记录.md",
+        "5. 用 write 写入 docs/developers/worklogs/ 目录",
+        "",
+        "注意：已有文档中记录过的决策不再重复；只总结本轮新决策。"
+      ].join("\n");
+      onSubmit({ text: worklogPrompt, imageUrls: [], selectedSkills: [] });
+      return;
+    }
   }
 
   function submitCurrentBuffer(): void {
@@ -805,14 +859,14 @@ export function PromptInput({
       ) : null}
       {showMenu ? (
         <Box flexDirection="column" marginBottom={1}>
-          {slashMenu.slice(0, 8).map((item, idx) => (
+          {slashMenu.slice(0, 12).map((item, idx) => (
             <Text key={item.label} color={idx === menuIndex ? "cyanBright" : undefined} wrap="truncate-end">
               {idx === menuIndex ? "► " : "  "}
               <Text bold>{formatSlashCommandLabel(item)}</Text>
               <Text dimColor>  {formatSlashCommandDescription(item.description)}</Text>
             </Text>
           ))}
-          {slashMenu.length > 8 ? <Text dimColor>… {slashMenu.length - 8} more</Text> : null}
+          {slashMenu.length > 12 ? <Text dimColor>… {slashMenu.length - 12} more</Text> : null}
         </Box>
       ) : null}
       <Text dimColor>{divider}</Text>
