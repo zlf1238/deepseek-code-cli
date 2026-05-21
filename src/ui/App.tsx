@@ -59,26 +59,8 @@ const envTerm = (process.env as Record<string, string>)["TERM"] || "unset";
 const envTermProg = (process.env as Record<string, string>)["TERM_PROGRAM"] || "unset";
 logDebug("MODULE_LOAD", "fd:", TERMINAL_FD, "out.isTTY:", process.stdout?.isTTY, "stderr.isTTY:", process.stderr?.isTTY, "TERM:", envTerm, "TERM_PROGRAM:", envTermProg, "rows:", process.stdout?.rows);
 // ──────────────
-// 缓存 stderr fd 用于写清屏序列。
-// Ink 拦截 process.stdout 但不碰 stderr，写 stderr 可绕过 Ink 的输出控制。
-const STDERR_FD = process.stderr.fd;
-
-// 用 fs.writeSync 直接写 stderr，绕过 Ink 对 stdout 的拦截。
-// 日志和清屏数据都走 stderr 确保及时到达终端。
-function writeTerminal(data: string): void {
-  const dataLen = Buffer.byteLength(data, "utf8");
-  try {
-    const written = fs.writeSync(STDERR_FD, data);
-    logDebug("WRITE_STDERR bytes:", written, "bufLen:", dataLen);
-  } catch (e) {
-    logDebug("WRITE_STDERR_FAIL err:", String(e));
-    // 降级：写 fd 1
-    try {
-      const written = fs.writeSync(TERMINAL_FD, data);
-      logDebug("WRITE_FD1 bytes:", written, "bufLen:", dataLen);
-    } catch {}
-  }
-}
+// 用 process.stdout.write 的原生绑定写清屏序列（在 Ink 修补 stdout 之前捕获）。
+const directTerminalWrite = process.stdout.write.bind(process.stdout);
 
 /**
  * Clear the terminal screen and attempt to erase the scrollback buffer.
@@ -91,20 +73,16 @@ function writeTerminal(data: string): void {
  * 3. Final clear and home cursor.
  */
 function clearTerminal(): void {
-  const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
-  const rows = process.stdout.rows || 52;
-  // 纯换行刷屏：从 HOME 位置开始刷行，将旧内容推出可见区域。
-  // ConPTY 不转发 ANSI 清屏序列（\u001B[2J/\u001B[3J/\u001Bc），
-  // 但 \r\n 换行刷屏不受影响。Windows Terminal 默认滚动缓冲区
-  // 约 9000 行，刷 10000+ 行确保推干净。
-  const lineCount = Math.max(rows * 30, 10000);
-  logDebug("CLEAR_START rows:", rows, "lineCount:", lineCount, "caller:", callStack);
+  directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
+  directTerminalWrite("\u001B[3J");
 
-  // \u001B[H 将光标移到 HOME，然后从顶部开始刷屏
-  writeTerminal("\u001B[H");
-  writeTerminal("\r\n".repeat(lineCount));
-  writeTerminal("\u001B[H");
-  logDebug("CLEAR_DONE");
+  // Fallback: blank-line fill pushes old content out of scrollback.
+  // Use a large count (>=3000) to exhaust Windows Terminal's large default
+  // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
+  const rows = process.stdout.rows || 40;
+  directTerminalWrite("\n".repeat(Math.max(rows * 30, 10000)));
+
+  directTerminalWrite("\u001B[2J\u001B[H");
 }
 
 type View = "chat" | "session-list";
@@ -551,11 +529,7 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
           width={screenWidth}
         />
       ) : null}
-      {/* 仅在 chat 视图时渲染消息，session-list 视图时移除 Static 组件。
-          Ink 的 Static 输出是永久性的，不会在后续渲染中被 diff 清除。
-          若不清除，/resume 后旧消息会与 SessionList 同时出现在终端上。 */}
-      {view === "chat" ? (
-        <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
+      <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
           {(message) => {
             // 计算思考过程序号（仅用于 asThinking 消息）
             let thinkingIdx: number | undefined;
@@ -581,7 +555,6 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
             );
           }}
         </Static>
-      ) : null}
       {statusLine ? (
         <Box>
           <Text dimColor>{statusLine}</Text>
