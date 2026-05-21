@@ -42,13 +42,14 @@ const TERMINAL_FD = process.stdout.fd;
 
 // ── 排查日志 ──
 const LOG_PATH = "/mnt/d/Java/IdeaProjects/deepseek-code-cli/resume-debug.log";
-const LOG_FLAG = fs.existsSync(LOG_PATH) ? "a" : "w";
+// 先删除旧日志文件，确保从空白开始记录
+try { fs.unlinkSync(LOG_PATH); } catch { /* 文件不存在时忽略 */ }
 
 function logDebug(...args: unknown[]): void {
   const ts = new Date().toISOString().slice(11, 23);
   const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
   try {
-    fs.writeFileSync(LOG_PATH, `[${ts}] ${msg}\n`, { flag: LOG_FLAG } as any);
+    fs.writeFileSync(LOG_PATH, `[${ts}] ${msg}\n`, { flag: "a" } as any);
   } catch { /* 日志写入失败不阻塞 */ }
 }
 
