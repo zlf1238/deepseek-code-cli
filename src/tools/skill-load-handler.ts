@@ -18,53 +18,58 @@ export async function handleSkillLoadTool(
     };
   }
 
-  // Resolve skill paths — user-level first (~/.agents/skills), then project-level
-  const homeDir = os.homedir();
-  const skillPaths = [
-    path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
-    path.join(homeDir, ".agents", "skills", `${name}.md`),
-    path.join(context.projectRoot, ".deepseek-code", "skills", name, "SKILL.md"),
-    path.join(context.projectRoot, ".deepseek-code", "skills", `${name}.md`),
-  ];
+  // 通知终端 UI 正在加载 skill（利用 onProcessStart/onProcessExit 钩子）
+  const processId = `skillload-${name}`;
+  context.onProcessStart?.(processId, `加载 Skill: ${name}`);
 
-  let body: string | null = null;
-  let skillPath: string | null = null;
-
-  for (const p of skillPaths) {
-    try {
-      body = fs.readFileSync(p, "utf8");
-      skillPath = p;
-      break;
-    } catch {
-      // Try next candidate
-    }
-  }
-
-  if (!body || !skillPath) {
-    // Build available names list for a helpful error
-    const availableNames = collectAvailableSkillNames(context.projectRoot);
-    return {
-      ok: false,
-      name: "SkillLoad",
-      error: `Unknown skill: "${name}". Available: ${availableNames.join(", ") || "(none)"}`,
-    };
-  }
-
-  // ── 解析 frontmatter 决定 runAs 模式 ──
-  let runAs: string;
-  let skillContent: string;
-  let frontmatter: Record<string, unknown> = {};
   try {
-    const parsed = matter(body);
-    frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
-    runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
-    skillContent = parsed.content;
-  } catch {
-    return {
-      ok: false,
-      name: "SkillLoad",
-      error: `Failed to parse skill file for \"${name}\". The SKILL.md file may be corrupted.`,
-      metadata: { failureCode: "AMBIGUOUS" as any },
+    // Resolve skill paths — user-level first (~/.agents/skills), then project-level
+    const homeDir = os.homedir();
+    const skillPaths = [
+      path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
+      path.join(homeDir, ".agents", "skills", `${name}.md`),
+      path.join(context.projectRoot, ".deepseek-code", "skills", name, "SKILL.md"),
+      path.join(context.projectRoot, ".deepseek-code", "skills", `${name}.md`),
+    ];
+
+    let body: string | null = null;
+    let skillPath: string | null = null;
+
+    for (const p of skillPaths) {
+      try {
+        body = fs.readFileSync(p, "utf8");
+        skillPath = p;
+        break;
+      } catch {
+        // Try next candidate
+      }
+    }
+
+    if (!body || !skillPath) {
+      // Build available names list for a helpful error
+      const availableNames = collectAvailableSkillNames(context.projectRoot);
+      return {
+        ok: false,
+        name: "SkillLoad",
+        error: `Unknown skill: "${name}". Available: ${availableNames.join(", ") || "(none)"}`,
+      };
+    }
+
+    // ── 解析 frontmatter 决定 runAs 模式 ──
+    let runAs: string;
+    let skillContent: string;
+    let frontmatter: Record<string, unknown> = {};
+    try {
+      const parsed = matter(body);
+      frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
+      runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
+      skillContent = parsed.content;
+    } catch {
+      return {
+        ok: false,
+        name: "SkillLoad",
+        error: `Failed to parse skill file for \"${name}\". The SKILL.md file may be corrupted.`,
+        metadata: { failureCode: "AMBIGUOUS" as any },
     };
   }
 
@@ -111,6 +116,10 @@ export async function handleSkillLoadTool(
     metadata: { skillName: name, charCount: body.length, path: skillPath },
     followUpMessages,
   };
+  } finally {
+    // 延迟 exit 给 React 一个渲染周期，让用户看到"加载 Skill"提示
+    setTimeout(() => context.onProcessExit?.(processId), 0);
+  }
 }
 
 /** Collect skill names from both user-level and project-level directories. */
