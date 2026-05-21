@@ -65,12 +65,23 @@ logDebug("MODULE_LOAD", "fd:", TERMINAL_FD, "out.isTTY:", process.stdout?.isTTY,
 function writeTerminal(data: string): void {
   const preview = data.length > 80 ? data.slice(0, 40) + "..." + data.slice(-40) : data;
   const dataLen = Buffer.byteLength(data, "utf8");
+  // 方案 A：写缓存 fd 1（可能被 Node.js/Ink 重定向）
   try {
-    const written = fs.writeSync(TERMINAL_FD, data);
-    logDebug("WRITE_OK fd:", TERMINAL_FD, "bytes:", written, "bufLen:", dataLen, "preview:", JSON.stringify(preview));
+    const written1 = fs.writeSync(TERMINAL_FD, data);
+    logDebug("WRITE_FD1 fd:", TERMINAL_FD, "bytes:", written1, "bufLen:", dataLen);
   } catch (e) {
-    logDebug("WRITE_FAIL fd:", TERMINAL_FD, "err:", String(e), "fallback to process.stdout.write");
-    process.stdout.write(data);
+    logDebug("WRITE_FD1_FAIL err:", String(e));
+  }
+  // 方案 B：直接写 /dev/tty（绕过所有流层）
+  try {
+    const ttyFd = fs.openSync("/dev/tty", "w");
+    const written2 = fs.writeSync(ttyFd, data);
+    fs.closeSync(ttyFd);
+    if (written2 !== dataLen) {
+      logDebug("WRITE_TTY PARTIAL bytes:", written2, "of", dataLen);
+    }
+  } catch (e) {
+    logDebug("WRITE_TTY_FAIL err:", String(e));
   }
 }
 
@@ -86,20 +97,10 @@ function writeTerminal(data: string): void {
  */
 function clearTerminal(): void {
   const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
-  const rows = process.stdout.rows || 40;
-  const lineCount = Math.max(rows * 30, 10000);
-  logDebug("CLEAR_START rows:", rows, "lineCount:", lineCount, "caller:", callStack);
+  logDebug("CLEAR_START caller:", callStack);
 
-  // 方案 A：RIS（Reset to Initial State）—— 完全复位终端，清除显示和滚动缓冲区
-  // RIS 是 VT100+ 标准序列，几乎所有终端（含 Windows Terminal）都支持。
-  writeTerminal("\u001Bc");
-  logDebug("  RIS written");
-
-  // 方案 B：标准清屏 + 换行刷屏（作为补充）
-  writeTerminal("\u001B[2J\u001B[3J\u001B[H");
-  writeTerminal("\u001B[3J");
-  writeTerminal("\r\n".repeat(lineCount));
-  writeTerminal("\u001B[2J\u001B[H");
+  // 双路写清屏序列：fd 1 + /dev/tty，至少一个能生效
+  writeTerminal("\u001Bc\u001B[2J\u001B[3J\u001B[H");
   logDebug("CLEAR_DONE");
 }
 
