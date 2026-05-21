@@ -170,6 +170,30 @@ function parseRow(line: string): string[] | null {
   return inner.split("|").map((cell) => cell.trim());
 }
 
+/** 计算字符串在终端中的显示宽度（CJK 字符占 2 列，其余占 1 列） */
+function displayWidth(s: string): number {
+  let width = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    // CJK 统一表意文字 + 扩展区 + 中文标点 + 全角字符
+    if (
+      (cp >= 0x4E00 && cp <= 0x9FFF) ||   // CJK 统一表意文字
+      (cp >= 0x3400 && cp <= 0x4DBF) ||   // CJK 扩展 A
+      (cp >= 0x20000 && cp <= 0x2EBEF) || // CJK 扩展 B~G
+      (cp >= 0x3000 && cp <= 0x303F) ||   // CJK 标点
+      (cp >= 0xFF00 && cp <= 0xFFEF) ||   // 全角字符
+      (cp >= 0x2E80 && cp <= 0x2EFF) ||   // CJK 部首补充
+      (cp >= 0x3200 && cp <= 0x32FF) ||   // 带圈 CJK 字符
+      (cp >= 0xF900 && cp <= 0xFAFF)      // CJK 兼容表意文字
+    ) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
 /** 解析对齐行（第二行），返回每列对齐方式 */
 function parseAlignRow(line: string): TableAlign[] | null {
   const cells = parseRow(line);
@@ -229,10 +253,10 @@ export function renderTable(data: TableData, maxWidth?: number): string {
 
   // 计算每列宽度：取表头和数据中最长的内容 + 左右各 1 空格
   let colWidths = headers.map((header, colIdx) => {
-    let max = header.length;
+    let max = displayWidth(header);
     for (const row of rows) {
-      if (row[colIdx] && row[colIdx].length > max) {
-        max = row[colIdx].length;
+      if (row[colIdx] && displayWidth(row[colIdx]) > max) {
+        max = displayWidth(row[colIdx]);
       }
     }
     return Math.max(max, 1);
@@ -249,7 +273,7 @@ export function renderTable(data: TableData, maxWidth?: number): string {
       const totalColWidth = colWidths.reduce((a, b) => a + b, 0);
       if (totalColWidth > 0) {
         colWidths = colWidths.map((w, idx) => {
-          const headerLen = headers[idx].length;
+          const headerLen = displayWidth(headers[idx]);
           if (w <= headerLen) return w;
           const minWidth = Math.max(headerLen, 3);
           const shrink = Math.round((w / totalColWidth) * overflow);
@@ -331,7 +355,7 @@ function buildDataLine(
 
 /** 按对齐方式填充单元格到指定宽度 */
 function padCell(text: string, width: number, align: TableAlign): string {
-  const len = text.length;
+  const len = displayWidth(text);
   if (len >= width) return text;
 
   const diff = width - len;
