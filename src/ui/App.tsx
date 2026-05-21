@@ -153,11 +153,10 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           thinking.toggle(thinking.latestThinkingId);
           setThinkingRenderKey((k) => k + 1);
         }
-      } else if (key.return && thinking.latestThinkingId) {
-        // Enter key toggles the latest thinking block (matches [按⏎展开/折叠] hint)
-        clearTerminal();
-        thinking.toggle(thinking.latestThinkingId);
-        setThinkingRenderKey((k) => k + 1);
+      } else if (key.return) {
+        // Enter 键不在此全局处理，避免与 PromptInput 的回车提交冲突
+        // 用户可用 [t] 键切换最新思考块
+        return;
       }
     },
     { isActive: verboseMode && !busy && view === "chat" }
@@ -180,25 +179,6 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const activeModelRef = useRef(activeModel);
   activeModelRef.current = activeModel;
   const pricingRef = useRef<Required<PricingConfig>>({ inputPricePerMillion: 0, outputPricePerMillion: 0, inputCacheHitPricePerMillion: 0, inputCacheMissPricePerMillion: 0 });
-  const { handlePrompt, isSubmittingRef } = usePromptHandler({
-    sessionManager,
-    dispatchMessages,
-    setBusy,
-    setStatusLine,
-    setErrorLine,
-    setRunningProcesses,
-    setActiveStatus,
-    setDismissedQuestionIds,
-    setStreamProgress,
-    setView,
-    refreshSessionsList,
-    refreshSkills,
-    clearTerminal,
-    exit,
-    pricingRef,
-    resolveModelPricing,
-  });
-
   const sessionManager = useMemo(() => {
     return new SessionManager({
       projectRoot,
@@ -222,6 +202,25 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       }
     });
   }, [projectRoot]);
+
+  const { handlePrompt, isSubmittingRef } = usePromptHandler({
+    sessionManager,
+    dispatchMessages,
+    setBusy,
+    setStatusLine,
+    setErrorLine,
+    setRunningProcesses,
+    setActiveStatus,
+    setDismissedQuestionIds,
+    setStreamProgress,
+    setView,
+    refreshSessionsList,
+    refreshSkills,
+    clearTerminal,
+    exit,
+    pricingRef,
+    resolveModelPricing,
+  });
 
   useEffect(() => {
     if (!busy) {
@@ -307,21 +306,33 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
 
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
+      // 先切换会话、清屏、切视图、重置消息 —— 这些操作必须在加载数据之前完成。
+      // 原因：React 17 在 Ink 的 useInput 回调（非 React 事件）中不会批处理状态更新，
+      // 每个 dispatch / setState 都会触发一次同步渲染。若 setView("chat") 在最后执行，
+      // 中间渲染会把 SessionList 重新画回已被 clearTerminal() 清空的屏幕上。
       sessionManager.setActiveSessionId(sessionId);
       // Same clearTerminal() as /new and /resume — ensures old Static output
       // is wiped from both display and scrollback before new messages render.
       clearTerminal();
-      // resetMessages increments staticKey → Static re-renders; setMessages loads the data
-      dispatchMessages({ type: "resetMessages" });
-      dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
-      const session = sessionManager.getSession(sessionId);
-      setStatusLine(session ? buildStatusLine(session, activeModelRef.current, pricingRef.current) : "");
-      setRunningProcesses(session?.processes ?? null);
-      setActiveStatus(session?.status ?? null);
+      // 立即切换到 chat 视图，卸载 SessionList
       setView("chat");
-      await refreshSkills(sessionId);
+      // resetMessages increments staticKey → Static re-renders; 清空旧消息
+      dispatchMessages({ type: "resetMessages" });
+
+      try {
+        // 加载新会话的消息（可能因磁盘错误而失败，但视图已是 chat）
+        dispatchMessages({ type: "setMessages", messages: loadVisibleMessages(sessionManager, sessionId) });
+        const session = sessionManager.getSession(sessionId);
+        setStatusLine(session ? buildStatusLine(session, activeModelRef.current, pricingRef.current) : "");
+        setRunningProcesses(session?.processes ?? null);
+        setActiveStatus(session?.status ?? null);
+        await refreshSkills(sessionId);
+      } catch {
+        // 数据加载失败时视图已是 chat，只需忽略错误；
+        // 状态行和错误行已在 handlePrompt 的 /resume 分支中清空。
+      }
     },
-    [sessionManager, write]
+    [sessionManager]
   );
 
   const screenWidth = stdout?.columns ?? 80;
