@@ -3,19 +3,6 @@ import * as path from "path";
 import * as fs from "fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
 
-/** 构造抑制 npm 警告的环境变量 */
-function suppressNpmWarnEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, npm_config_loglevel: "error" };
-}
-
-/** 过滤 stderr 中的 npm 警告行，返回有意义的内容 */
-function filterNpmWarnings(stderr: string): string {
-  return stderr
-    .split("\n")
-    .filter((line) => !line.startsWith("npm warn") && !line.startsWith("npm notice"))
-    .join("\n")
-    .trim();
-}
 
 // ── 索引状态管理 ────────────────────────────────────────
 const MAX_INDEX_AGE_MS = 30 * 60 * 1000; // 30分钟过期
@@ -65,11 +52,10 @@ async function ensureIndex(
 
   const promise = new Promise<{ ok: boolean; error?: string }>((resolve) => {
     const child = spawn(
-      "npx",
-      ["-y", "gitnexus@latest", "analyze", "--skip-embeddings", projectRoot],
+      "gitnexus",
+      ["analyze", "--skip-embeddings", projectRoot],
       {
         cwd: projectRoot,
-        env: suppressNpmWarnEnv(),
         stdio: ["ignore", "pipe", "pipe"],
         timeout: 120_000
       }
@@ -85,8 +71,7 @@ async function ensureIndex(
       if (code === 0) {
         resolve({ ok: true });
       } else {
-        const errMsg = filterNpmWarnings(stderr).slice(0, 500).replace(/\n/g, " ");
-        resolve({ ok: false, error: `GitNexus indexing failed (exit ${code}): ${errMsg}` });
+        resolve({ ok: false, error: `GitNexus indexing failed (exit ${code}): ${stderr.slice(0, 500).replace(/\n/g, " ")}` });
       }
     });
 
@@ -132,9 +117,8 @@ class GitnexusMCPOneShot {
       this.pendingReject = reject;
       this.pendingType = 'tool';
 
-      this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
+      this.proc = spawn("gitnexus", ["mcp"], {
         cwd: this.projectRoot,
-        env: suppressNpmWarnEnv(),
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 60_000
       });
@@ -155,9 +139,8 @@ class GitnexusMCPOneShot {
 
       this.proc.on("close", (code) => {
         if (this.pendingReject) {
-          const filtered = filterNpmWarnings(stderrAcc);
-          const msg = filtered || `GitNexus MCP exited with code ${code}`;
-          reject(new Error(msg || "GitNexus MCP closed unexpectedly"));
+          const stderrSample = stderrAcc.slice(0, 500).replace(/\n/g, " ");
+          reject(new Error(`GitNexus MCP exited with code ${code}. stderr: ${stderrSample}`));
         }
       });
 
@@ -182,9 +165,8 @@ class GitnexusMCPOneShot {
       this.pendingReject = reject;
       this.pendingType = 'resource';
 
-      this.proc = spawn("npx", ["-y", "gitnexus@latest", "mcp"], {
+      this.proc = spawn("gitnexus", ["mcp"], {
         cwd: this.projectRoot,
-        env: suppressNpmWarnEnv(),
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 60_000
       });
@@ -205,9 +187,8 @@ class GitnexusMCPOneShot {
 
       this.proc.on("close", (code) => {
         if (this.pendingReject) {
-          const filtered = filterNpmWarnings(stderrAcc);
-          const msg = filtered || `GitNexus MCP exited with code ${code}`;
-          reject(new Error(msg || "GitNexus MCP closed unexpectedly"));
+          const stderrSample = stderrAcc.slice(0, 500).replace(/\n/g, " ");
+          reject(new Error(`GitNexus MCP exited with code ${code}. stderr: ${stderrSample}`));
         }
       });
 
@@ -319,13 +300,18 @@ class GitnexusMCPOneShot {
     }
     const r = result as Record<string, unknown>;
 
-    // MCP resources/read 响应格式: { contents: [{ type: "text", text: "..." }] }
+    // MCP resources/read 响应格式:
+    //   { contents: [{ type: "text", text: "..." }] }
+    // 或 { contents: [{ mimeType: "text/yaml", text: "..." }] }
     const contents = r.contents;
     if (Array.isArray(contents)) {
       const texts = contents
         .map((item: unknown) => {
-          if (item && typeof item === "object" && (item as { type?: string }).type === "text") {
-            return (item as { text?: string }).text ?? "";
+          if (item && typeof item === "object") {
+            const it = item as { type?: string; mimeType?: string; text?: string };
+            if (it.type === "text" || (typeof it.mimeType === "string" && it.mimeType.startsWith("text/"))) {
+              return it.text ?? "";
+            }
           }
           return "";
         })
@@ -362,9 +348,28 @@ async function getRepoName(projectRoot: string): Promise<string> {
   const client = new GitnexusMCPOneShot(projectRoot);
   const raw = await client.callTool("list_repos", {});
 
+  // 从原始输出中提取 JSON 数组部分（MCP 工具响应末尾可能带额外的提示文本）
+  let jsonPart = raw;
+  const bracketStart = raw.indexOf("[");
+  if (bracketStart !== -1) {
+    // 找到匹配的结束 ]，考虑嵌套情况
+    let depth = 0;
+    let bracketEnd = -1;
+    for (let i = bracketStart; i < raw.length; i++) {
+      if (raw[i] === "[") depth++;
+      else if (raw[i] === "]") {
+        depth--;
+        if (depth === 0) { bracketEnd = i; break; }
+      }
+    }
+    if (bracketEnd !== -1) {
+      jsonPart = raw.slice(bracketStart, bracketEnd + 1);
+    }
+  }
+
   let repos: Array<{ name?: string; path?: string }> = [];
   try {
-    repos = JSON.parse(raw);
+    repos = JSON.parse(jsonPart);
   } catch {
     // 如果解析失败，使用目录名作为 repo 名称
     const fallback = path.basename(projectRoot);
@@ -471,15 +476,88 @@ export async function handleGitnexusImpact(
 
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = { path: target };
-      if (typeof args.symbol === "string" && args.symbol.trim()) {
-        params.symbol = args.symbol.trim();
+      // gitnexus MCP impact 工具参数映射：
+      //   target: 符号名或文件路径（必填）
+      //   file_path: 文件路径 hint，同名符号消歧用
+      //   direction: upstream（谁依赖它）/ downstream（它依赖谁）
+      const params: Record<string, unknown> = {};
+      const symbol = typeof args.symbol === "string" ? args.symbol.trim() : "";
+      if (symbol) {
+        // 有 symbol 参数时，用它作为 target，target 文件路径作为 file_path hint
+        params.target = symbol;
+        params.file_path = target;
+      } else {
+        params.target = target;
+      }
+      const direction = typeof args.direction === "string" ? args.direction.trim() : "";
+      if (direction) {
+        params.direction = direction;
       }
       const client = new GitnexusMCPOneShot(context.projectRoot);
       const raw = await client.callTool("impact", params);
       return { ok: true, name: "gitnexus_impact", output: raw };
     } catch (e) {
       return { ok: false, name: "gitnexus_impact", error: String(e) };
+    }
+  });
+}
+
+export async function handleGitnexusDetectChanges(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
+  return withIndex(context, async () => {
+    try {
+      const params: Record<string, unknown> = {};
+      const scope = typeof args.scope === "string" ? args.scope.trim() : "";
+      if (scope) {
+        params.scope = scope;
+      }
+      const baseRef = typeof args.base_ref === "string" ? args.base_ref.trim() : "";
+      if (baseRef) {
+        params.base_ref = baseRef;
+      }
+      const client = new GitnexusMCPOneShot(context.projectRoot);
+      const raw = await client.callTool("detect_changes", params);
+      return { ok: true, name: "gitnexus_detect_changes", output: raw };
+    } catch (e) {
+      return { ok: false, name: "gitnexus_detect_changes", error: String(e) };
+    }
+  });
+}
+
+export async function handleGitnexusRename(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext
+): Promise<ToolExecutionResult> {
+  const newName = typeof args.new_name === "string" ? args.new_name.trim() : "";
+  if (!newName) {
+    return { ok: false, name: "gitnexus_rename", error: 'Missing required "new_name".' };
+  }
+
+  return withIndex(context, async () => {
+    try {
+      const params: Record<string, unknown> = { new_name: newName };
+      const symbolName = typeof args.symbol_name === "string" ? args.symbol_name.trim() : "";
+      if (symbolName) {
+        params.symbol_name = symbolName;
+      }
+      const symbolUid = typeof args.symbol_uid === "string" ? args.symbol_uid.trim() : "";
+      if (symbolUid) {
+        params.symbol_uid = symbolUid;
+      }
+      const filePath = typeof args.file_path === "string" ? args.file_path.trim() : "";
+      if (filePath) {
+        params.file_path = filePath;
+      }
+      if (typeof args.dry_run === "boolean") {
+        params.dry_run = args.dry_run;
+      }
+      const client = new GitnexusMCPOneShot(context.projectRoot);
+      const raw = await client.callTool("rename", params);
+      return { ok: true, name: "gitnexus_rename", output: raw };
+    } catch (e) {
+      return { ok: false, name: "gitnexus_rename", error: String(e) };
     }
   });
 }
@@ -546,8 +624,8 @@ export function ensureGitnexusIndexAsync(projectRoot: string): void {
 
   const task = new Promise<void>((resolve) => {
     const child = spawn(
-      "npx",
-      ["-y", "gitnexus@latest", "analyze", "--skip-embeddings", projectRoot],
+      "gitnexus",
+      ["analyze", "--skip-embeddings", projectRoot],
       {
         cwd: projectRoot,
         env: process.env,

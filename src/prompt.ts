@@ -142,6 +142,8 @@ function getToolSummary(supervisorMode: boolean): string {
     "- gitnexus_query: 在代码库知识图谱中搜索符号/概念",
     "- gitnexus_context: 获取单个符号的360度视图",
     "- gitnexus_impact: 变更前分析影响面",
+    "- gitnexus_detect_changes: 提交前检测变更影响范围",
+    "- gitnexus_rename: 安全重命名符号（自动更新所有引用）",
     "- gitnexus_clusters: 读取代码库功能聚类",
     "- gitnexus_processes: 列出或追踪代码库执行流",
   ];
@@ -1112,9 +1114,77 @@ allowed_tools: {
           symbol: {
             type: "string",
             description: "可选：具体符号名称。不提供则分析文件级影响。"
+          },
+          direction: {
+            type: "string",
+            enum: ["upstream", "downstream"],
+            description: "影响方向：upstream（谁依赖此符号）或 downstream（此符号依赖谁）。默认 downstream。"
           }
         },
         required: ["target"],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_detect_changes",
+      description:
+        "检测当前代码变更的影响范围，验证修改只影响预期的符号和执行流。" +
+        "提交前必须运行此工具确认变更范围正确。",
+      parameters: {
+        type: "object",
+        properties: {
+          scope: {
+            type: "string",
+            enum: ["unstaged", "staged", "all", "compare"],
+            description: "分析范围：unstaged（默认）、staged、all、compare（需指定 base_ref）"
+          },
+          base_ref: {
+            type: "string",
+            description: "compare 模式下的基准分支或 commit（如 main）"
+          }
+        },
+        required: [],
+        additionalProperties: false
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "gitnexus_rename",
+      description:
+        "安全地重命名符号（函数、类、方法等），自动更新所有引用。" +
+        "不要用查找替换做重命名——使用此工具，它理解调用图。",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol_name: {
+            type: "string",
+            description: "当前符号名称"
+          },
+          new_name: {
+            type: "string",
+            description: "符号的新名称"
+          },
+          symbol_uid: {
+            type: "string",
+            description: "符号 UID（来自 prior tool results），用于零歧义查找"
+          },
+          file_path: {
+            type: "string",
+            description: "文件路径 hint，同名符号消歧用"
+          },
+          dry_run: {
+            type: "boolean",
+            description: "预览模式，不实际修改文件（默认 true）"
+          }
+        },
+        required: ["new_name"],
         additionalProperties: false
       }
     }

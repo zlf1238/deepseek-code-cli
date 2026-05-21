@@ -1,7 +1,45 @@
 <!-- gitnexus:start -->
-# GitNexus
+# GitNexus — Code Intelligence
 
-修改符号前 `gitnexus_impact`，提交前 `gitnexus_detect_changes()`。探索代码优先 `gitnexus_query` 而非 grep。索引过期：`npx gitnexus analyze`。
+This project is indexed by GitNexus as **deepseek-code** (2696 symbols, 5143 relationships, 227 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Resources
+
+| 工具 | 用途 |
+|------|------|
+| `gitnexus_context({name: "符号名"})` | 符号 360 度视图：调用者、被调用者、参与的流程 |
+| `gitnexus_clusters({})` | 列出代码库所有功能聚类及内聚度 |
+| `gitnexus_processes({})` | 列出所有执行流 |
+| `gitnexus_processes({process: "名称"})` | step-by-step 执行链路追踪 |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.deepseek-code/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.deepseek-code/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.deepseek-code/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.deepseek-code/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.deepseek-code/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.deepseek-code/skills/gitnexus-cli/SKILL.md` |
+
 <!-- gitnexus:end -->
 
 ---
@@ -127,4 +165,3 @@
   3. 够了 → 停止探索，组织答案；不够 → 只加 1 个补充文件，然后必须回答
   4. 发现自己正在做"顺便"任务 → 立刻停止，回到用户问题原意
   5. 代码修改任务遵循 CODE_EXECUTOR_GUIDANCE；理解问题遵循 SYSTEM_PROMPT_BASE 中的探索策略，两者不混淆
-

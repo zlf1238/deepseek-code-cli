@@ -23,6 +23,8 @@ import {
   handleGitnexusQuery,
   handleGitnexusContext,
   handleGitnexusImpact,
+  handleGitnexusDetectChanges,
+  handleGitnexusRename,
   handleGitnexusClusters,
   handleGitnexusProcesses,
 } from "./gitnexus-handler";
@@ -114,6 +116,7 @@ export class ToolExecutor {
     "handle_read", "retrieve_tool_result",
     "spawn_code_executor",
     "gitnexus_query", "gitnexus_context", "gitnexus_impact",
+    "gitnexus_detect_changes", "gitnexus_rename",
     "gitnexus_clusters", "gitnexus_processes",
   ]);
 
@@ -274,6 +277,8 @@ export class ToolExecutor {
     this.toolHandlers.set("gitnexus_query", handleGitnexusQuery);
     this.toolHandlers.set("gitnexus_context", handleGitnexusContext);
     this.toolHandlers.set("gitnexus_impact", handleGitnexusImpact);
+    this.toolHandlers.set("gitnexus_detect_changes", handleGitnexusDetectChanges);
+    this.toolHandlers.set("gitnexus_rename", handleGitnexusRename);
     this.toolHandlers.set("gitnexus_clusters", handleGitnexusClusters);
     this.toolHandlers.set("gitnexus_processes", handleGitnexusProcesses);
   }
