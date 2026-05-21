@@ -128,7 +128,7 @@ export function MessageView({
         : "正在执行...";
       return (
         <Box marginY={0}>
-          <Text color="blue">{`  ● ${stepDesc}`}</Text>
+          <Text color="yellow">{`  ● ${stepDesc}`}</Text>
         </Box>
       );
     }
