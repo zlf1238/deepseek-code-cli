@@ -59,26 +59,24 @@ const envTerm = (process.env as Record<string, string>)["TERM"] || "unset";
 const envTermProg = (process.env as Record<string, string>)["TERM_PROGRAM"] || "unset";
 logDebug("MODULE_LOAD", "fd:", TERMINAL_FD, "out.isTTY:", process.stdout?.isTTY, "stderr.isTTY:", process.stderr?.isTTY, "TERM:", envTerm, "TERM_PROGRAM:", envTermProg, "rows:", process.stdout?.rows);
 // ──────────────
-// 用 fs.writeSync 直接写文件描述符，绕过 Node.js 的 stdout 缓冲区。
-// 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
-// 在 Ink 渲染之后才到达终端，旧内容因此残留。
+// 缓存 stderr fd 用于写清屏序列。
+// Ink 拦截 process.stdout 但不碰 stderr，写 stderr 可绕过 Ink 的输出控制。
+const STDERR_FD = process.stderr.fd;
+
+// 用 fs.writeSync 直接写 stderr，绕过 Ink 对 stdout 的拦截。
+// 日志和清屏数据都走 stderr 确保及时到达终端。
 function writeTerminal(data: string): void {
   const dataLen = Buffer.byteLength(data, "utf8");
-  // 方案 A：写缓存 fd 1
   try {
-    const written1 = fs.writeSync(TERMINAL_FD, data);
-    logDebug("WRITE_FD1 fd:", TERMINAL_FD, "bytes:", written1, "bufLen:", dataLen);
+    const written = fs.writeSync(STDERR_FD, data);
+    logDebug("WRITE_STDERR bytes:", written, "bufLen:", dataLen);
   } catch (e) {
-    logDebug("WRITE_FD1_FAIL err:", String(e));
-  }
-  // 方案 B：写 /dev/tty（直连终端，绕过所有流层）
-  try {
-    const ttyFd = fs.openSync("/dev/tty", "w");
-    const written2 = fs.writeSync(ttyFd, data);
-    fs.closeSync(ttyFd);
-    logDebug("WRITE_TTY bytes:", written2, "bufLen:", dataLen);
-  } catch (e) {
-    logDebug("WRITE_TTY_FAIL err:", String(e));
+    logDebug("WRITE_STDERR_FAIL err:", String(e));
+    // 降级：写 fd 1
+    try {
+      const written = fs.writeSync(TERMINAL_FD, data);
+      logDebug("WRITE_FD1 bytes:", written, "bufLen:", dataLen);
+    } catch {}
   }
 }
 
