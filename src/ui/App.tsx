@@ -34,10 +34,17 @@ import {
 const DEFAULT_MODEL = "deepseek-v4-pro";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
-// Capture unpatched stdout.write before Ink / PromptInput intercept it.
-// Used by clearTerminal() to directly write escape sequences that bypass
-// Ink's output interceptor.
-const directTerminalWrite = process.stdout.write.bind(process.stdout);
+// 用 fs.writeSync 直接写文件描述符，绕过 Node.js 的 stdout 缓冲区。
+// 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
+// 在 Ink 渲染之后才到达终端，旧内容因此残留。
+function writeTerminal(data: string): void {
+  try {
+    fs.writeSync(process.stdout.fd, data);
+  } catch {
+    // fd 不可用时的降级方案
+    process.stdout.write(data);
+  }
+}
 
 /**
  * Clear the terminal screen and attempt to erase the scrollback buffer.
@@ -46,20 +53,20 @@ const directTerminalWrite = process.stdout.write.bind(process.stdout);
  * 1. Standard escape sequences to clear display and scrollback
  * 2. Fill several screenfuls of blank lines to push remaining old
  *    scrollback content out of the buffer (fallback for terminals
- *    where \u001B[3J is ignored).
+ *    where \\u001B[3J is ignored).
  * 3. Final clear and home cursor.
  */
 function clearTerminal(): void {
-  directTerminalWrite("\u001B[2J\u001B[3J\u001B[H");
-  directTerminalWrite("\u001B[3J");
+  writeTerminal("\u001B[2J\u001B[3J\u001B[H");
+  writeTerminal("\u001B[3J");
 
   // Fallback: blank-line fill pushes old content out of scrollback.
   // Use a large count (>=3000) to exhaust Windows Terminal's large default
   // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
   const rows = process.stdout.rows || 40;
-  directTerminalWrite("\n".repeat(Math.max(rows * 30, 10000)));
+  writeTerminal("\n".repeat(Math.max(rows * 30, 10000)));
 
-  directTerminalWrite("\u001B[2J\u001B[H");
+  writeTerminal("\u001B[2J\u001B[H");
 }
 
 type View = "chat" | "session-list";
