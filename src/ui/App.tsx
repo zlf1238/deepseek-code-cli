@@ -95,16 +95,15 @@ function writeTerminal(data: string): void {
 function clearTerminal(): void {
   const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
   const rows = process.stdout.rows || 52;
-  // 用换行刷屏替代 ANSI 清屏序列：ConPTY 可能不支持 \u001B[2J/\u001B[3J/\u001Bc
-  // 刷满 3 屏确保旧内容被推出可见区域
-  const lineCount = rows * 3;
+  // 纯换行刷屏：从 HOME 位置开始刷行，将旧内容推出可见区域。
+  // ConPTY 不转发 ANSI 清屏序列（\u001B[2J/\u001B[3J/\u001Bc），
+  // 但 \r\n 换行刷屏不受影响。Windows Terminal 默认滚动缓冲区
+  // 约 9000 行，刷 10000+ 行确保推干净。
+  const lineCount = Math.max(rows * 30, 10000);
   logDebug("CLEAR_START rows:", rows, "lineCount:", lineCount, "caller:", callStack);
 
-  // 先写 ANSI 清屏（可能不起作用，但不影响）
-  writeTerminal("\u001Bc");
-  writeTerminal("\u001B[2J\u001B[3J\u001B[H");
-
-  // 换行刷屏（保障方案）
+  // \u001B[H 将光标移到 HOME，然后从顶部开始刷屏
+  writeTerminal("\u001B[H");
   writeTerminal("\r\n".repeat(lineCount));
   writeTerminal("\u001B[H");
   logDebug("CLEAR_DONE");
