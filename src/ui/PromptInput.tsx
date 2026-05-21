@@ -193,6 +193,25 @@ export const PromptInput = memo(function PromptInput({
       return;
     }
 
+    // Ctrl+D 双击退出（parseTerminalInput 已将 \x04 转为 "d" + ctrl:true）
+    if (key.ctrl && (input === "d" || input === "D")) {
+      if (busy) return;
+      const now = Date.now();
+      if (lastCtrlDAt.current && now - lastCtrlDAt.current < 800) {
+        onSubmit({ text: "", imageUrls: [], command: "exit" });
+        return;
+      }
+      closeAllMenus();
+      lastCtrlDAt.current = now;
+      setPendingExit(true);
+      setStatusMessage("再按一次 Ctrl+D 退出");
+      setTimeout(() => {
+        setPendingExit(false);
+        setStatusMessage(null);
+      }, 2000);
+      return;
+    }
+
     if (key.ctrl && key.tab) {
       return;
     }
@@ -483,7 +502,7 @@ export const PromptInput = memo(function PromptInput({
         return;
       case "skill":
         if (item.skill) {
-          setSelectedSkills((prev) => addUniqueSkill(prev, item.skill));
+          setSelectedSkills((prev) => addUniqueSkill(prev, item.skill!));
           setStatusMessage(`已选择技能: ${item.skill.name}，输入消息后发送即可使用`);
         }
         return;
@@ -753,27 +772,21 @@ function usePromptTerminalCursor(
 // 终端焦点上报
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * 终端焦点上报 hook（已禁用）。
+ *
+ * 原实现在 stdout 上监听 "data" 事件来检测焦点转义序列（\u001b[I / \u001b[O），
+ * 但 stdout 是 WriteStream，不应有 data 事件。在 WSL ConPTY 环境下 stdout 是 Duplex，
+ * stdout.on("data") 可能截获本该由 stdin 处理的按键数据，导致快速输入丢失。
+ *
+ * 焦点事件已合并到 parseTerminalInput 中（focusIn/focusOut 标志），
+ * 由 useTerminalInput 统一处理，无需单独监听 stdout。
+ */
 function useTerminalFocusReporting(
-  stdout: NodeJS.WriteStream | undefined,
-  enabled: boolean,
+  _stdout: NodeJS.WriteStream | undefined,
+  _enabled: boolean,
 ): void {
-  useEffect(() => {
-    if (!stdout || !enabled) return;
-
-    const handler = (data: Buffer) => {
-      const raw = String(data);
-      if (raw === "\u001b[I") {
-        // Focus in - could set state if needed
-      } else if (raw === "\u001b[O") {
-        // Focus out
-      }
-    };
-
-    stdout.on("data", handler);
-    return () => {
-      stdout.off("data", handler);
-    };
-  }, [stdout, enabled]);
+  // 已禁用：焦点事件由 useTerminalInput 通过 stdin 统一处理
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -62,7 +62,8 @@ function buildProcessLoadingText(processes: RunningProcesses | undefined, now: n
     return null;
   }
 
-  return `(${formatElapsedTime(first.startTime, now)}) ${first.command}`;
+  // 截断过长命令，防止状态栏换行导致 Ink 渲染残留
+  return `(${formatElapsedTime(first.startTime, now)}) ${first.command.slice(0, 80)}`;
 }
 
 function formatElapsedTime(startTimeIso: string, now: number): string {

@@ -2,6 +2,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { ReasoningEffort } from "../settings";
+import type { SkillInfo } from "../session";
 
 type Props = {
   activeModel: string;
@@ -113,10 +114,10 @@ export function SkillsDropdown({
   onToggle,
   onClose,
 }: {
-  skills: { name: string; description?: string }[];
+  skills: SkillInfo[];
   selectedIndex: number;
-  selectedSkills: { name: string }[];
-  onToggle: (skill: { name: string; description?: string }) => void;
+  selectedSkills: SkillInfo[];
+  onToggle: (skill: SkillInfo) => void;
   onClose: () => void;
 }): React.ReactElement {
   return (
@@ -166,6 +167,6 @@ export function ModeStatusBar({
     : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${activeModel} · thinking: ${activeThinking ? activeReasoningEffort : "off"} · verbose: ${verboseMode ? "on" : "off"} · autoSwitch: ${activeMode === "auto" ? "on" : "off"}`;
 
   return (
-    <Text dimColor>{text}</Text>
+    <Text dimColor wrap="truncate-end">{text}</Text>
   );
 }
