@@ -504,32 +504,37 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
           width={screenWidth}
         />
       ) : null}
-      <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
-        {(message) => {
-          // 计算思考过程序号（仅用于 asThinking 消息）
-          let thinkingIdx: number | undefined;
-          let thinkingTotal: number | undefined;
-          if (verboseMode && message.role === "assistant" && message.meta?.asThinking) {
-            thinkingTotal = thinking.thinkingCount;
-            const idx = thinking.thinkingIds.indexOf(message.id);
-            if (idx !== -1) thinkingIdx = thinkingTotal - idx; // 倒序（最新为 1）
-          }
-          return (
-            <MessageView
-              key={message.id}
-              message={message}
-              verboseMode={verboseMode}
-              isExpanded={thinking.isExpanded(message.id)}
-              onToggle={() => {
-                thinking.toggle(message.id);
-                setThinkingRenderKey((k) => k + 1);
-              }}
-              thinkingIndex={thinkingIdx}
-              totalThinkingCount={thinkingTotal}
-            />
-          );
-        }}
-      </Static>
+      {/* 仅在 chat 视图时渲染消息，session-list 视图时移除 Static 组件。
+          Ink 的 Static 输出是永久性的，不会在后续渲染中被 diff 清除。
+          若不清除，/resume 后旧消息会与 SessionList 同时出现在终端上。 */}
+      {view === "chat" ? (
+        <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
+          {(message) => {
+            // 计算思考过程序号（仅用于 asThinking 消息）
+            let thinkingIdx: number | undefined;
+            let thinkingTotal: number | undefined;
+            if (verboseMode && message.role === "assistant" && message.meta?.asThinking) {
+              thinkingTotal = thinking.thinkingCount;
+              const idx = thinking.thinkingIds.indexOf(message.id);
+              if (idx !== -1) thinkingIdx = thinkingTotal - idx; // 倒序（最新为 1）
+            }
+            return (
+              <MessageView
+                key={message.id}
+                message={message}
+                verboseMode={verboseMode}
+                isExpanded={thinking.isExpanded(message.id)}
+                onToggle={() => {
+                  thinking.toggle(message.id);
+                  setThinkingRenderKey((k) => k + 1);
+                }}
+                thinkingIndex={thinkingIdx}
+                totalThinkingCount={thinkingTotal}
+              />
+            );
+          }}
+        </Static>
+      ) : null}
       {statusLine ? (
         <Box>
           <Text dimColor>{statusLine}</Text>
