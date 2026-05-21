@@ -529,7 +529,8 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
           width={screenWidth}
         />
       ) : null}
-      <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
+      {view === "chat" ? (
+        <Static key={`messages-${staticKey}-${thinkingRenderKey}`} items={displayMessages}>
           {(message) => {
             // 计算思考过程序号（仅用于 asThinking 消息）
             let thinkingIdx: number | undefined;
@@ -555,6 +556,7 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
             );
           }}
         </Static>
+      ) : null}
       {statusLine ? (
         <Box>
           <Text dimColor>{statusLine}</Text>

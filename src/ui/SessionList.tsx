@@ -10,15 +10,15 @@ type Props = {
 };
 
 /**
- * Fixed overhead lines in the SessionList layout:
- *   1  title line ("选择一个会话继续")
- *   1  hidden-notice line (conditional)
- *   1  marginTop spacer (from the instruction <Box>)
- *   1  instruction line
+ * 固定 overhead 行数（不含会话列表和隐藏提示行）：
+ *   1  标题行（"选择一个会话继续"）
+ *   2  搜索提示区（含 marginBottom={1} 产生的空行）
+ *   2  操作提示区（含 marginTop={1} 产生的空行）
+ *   1  底部安全余量（防止终端边界溢出导致旧内容被滚回屏幕）
  *  ----
- *   4  total fixed lines
+ *   6  总计
  */
-const OVERHEAD_LINES = 4;
+const OVERHEAD_LINES = 6;
 
 export function SessionList({ sessions, onSelect, onCancel, onDelete }: Props): React.ReactElement {
   const { stdout } = useStdout();
