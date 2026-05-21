@@ -167,6 +167,6 @@ export function ModeStatusBar({
     : `Ctrl+Z: 撤销输入 · Enter: 发送 · Shift+Enter: 换行 · Ctrl+V: 粘贴图片 · /: 命令菜单 · Ctrl+D: 退出 · model: ${activeModel} · thinking: ${activeThinking ? activeReasoningEffort : "off"} · verbose: ${verboseMode ? "on" : "off"} · autoSwitch: ${activeMode === "auto" ? "on" : "off"}`;
 
   return (
-    <Text dimColor wrap="truncate-end">{text}</Text>
+    <Text color={busy ? "yellow" : undefined} dimColor={!busy} wrap="truncate-end">{text}</Text>
   );
 }
