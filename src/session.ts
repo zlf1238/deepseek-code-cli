@@ -1908,8 +1908,9 @@ The candidate skills are as follows:\n\n`;
         ? (rawTc as { id: string }).id
         : "";
 
-      // 1. 步骤指示器（AskUserQuestion 除外）
-      const isAskUser = getName(rawTc) === "AskUserQuestion";
+      // 1. 步骤指示器（AskUserQuestion / ask_choice 除外）
+      const toolNameForCheck = getName(rawTc);
+      const isAskUser = toolNameForCheck === "AskUserQuestion" || toolNameForCheck === "ask_choice";
       if (!isAskUser) {
         const toolFunction = getToolFunc(tcId);
         const stepDesc = this.getStepDescription(toolFunction);
