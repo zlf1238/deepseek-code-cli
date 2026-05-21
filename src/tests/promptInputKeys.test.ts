@@ -7,11 +7,13 @@ import {
   formatSelectedSkillsStatus,
   getPromptCursorPlacement,
   isClearImageAttachmentsShortcut,
-  parseTerminalInput,
   removeCurrentSlashToken,
   toggleSkillSelection,
-  renderBufferWithCursor
+  renderBufferWithCursor,
 } from "../ui/PromptInput";
+import {
+  parseTerminalInput,
+} from "../ui/parseTerminalInput";
 import type { SkillInfo } from "../session";
 
 test("parseTerminalInput treats DEL bytes as backspace", () => {

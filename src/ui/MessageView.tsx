@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, Text } from "ink";
 import { renderMarkdown } from "./markdown";
 import type { SessionMessage } from "../session";
@@ -25,6 +25,8 @@ function estimateTokens(text: string): number {
   return Math.round(charCount / 4.5);
 }
 
+// 3.4 消息颜色编码增强
+// 用户消息: 绿色+粗体 | 思考过程: 灰色+斜体 | 工具步骤: 蓝色 | 工具结果: 青色
 export function MessageView({
   message,
   verboseMode,
@@ -41,7 +43,7 @@ export function MessageView({
     const text = message.content || "(no content)";
     return (
       <Box flexDirection="column" marginY={0}>
-        <Text color="green">{`❯ ${text}`}</Text>
+        <Text color="green" bold>{`❯ ${text}`}</Text>
         {Array.isArray(message.contentParams) && message.contentParams.length > 0 ? (
           <Text color="green">{`  📎 ${message.contentParams.length} image attachment(s)`}</Text>
         ) : null}
@@ -72,7 +74,7 @@ export function MessageView({
           : "";
         return (
           <Box flexDirection="column" marginY={0}>
-            <Text dimColor>
+            <Text dimColor italic>
               {`  ▸ 思考过程${indexLabel} (${tokens} tokens) [按⏎展开]`}
             </Text>
           </Box>
@@ -83,8 +85,8 @@ export function MessageView({
       return (
         <Box flexDirection="column" marginY={0}>
           <Box flexDirection="row">
-            <Text dimColor>{`  ▸ 思考过程`}</Text>
-            <Text dimColor>{` [按⏎折叠]`}</Text>
+            <Text dimColor italic>{`  ▸ 思考过程`}</Text>
+            <Text dimColor italic>{` [按⏎折叠]`}</Text>
           </Box>
           <Box marginLeft={4} flexDirection="column">
             <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
@@ -101,13 +103,13 @@ export function MessageView({
           <Box marginLeft={2} flexDirection="column">
             {isExpanded ? (
               <>
-                <Text dimColor>{`  ▸ 思考过程 [按⏎折叠]`}</Text>
+                <Text dimColor italic>{`  ▸ 思考过程 [按⏎折叠]`}</Text>
                 <Box marginLeft={2} flexDirection="column">
                   <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
                 </Box>
               </>
             ) : (
-              <Text dimColor>{`  ▸ 思考过程 (${estimateTokens(reasoningContent)} tokens) [按⏎展开]`}</Text>
+              <Text dimColor italic>{`  ▸ 思考过程 (${estimateTokens(reasoningContent)} tokens) [按⏎展开]`}</Text>
             )}
           </Box>
         ) : null}
@@ -126,7 +128,7 @@ export function MessageView({
         : "正在执行...";
       return (
         <Box marginY={0}>
-          <Text dimColor>{`  ● ${stepDesc}`}</Text>
+          <Text color="blue">{`  ● ${stepDesc}`}</Text>
         </Box>
       );
     }
@@ -181,7 +183,7 @@ function StatusLine({
       {[
         <Text key="bullet" color={bulletColor}>•</Text>,
         " ",
-        <Text key="name" bold>{name}</Text>,
+        <Text key="name" bold color="cyan">{name}</Text>,
         params ? <Text key="params" color="white">{`  ${params}`}</Text> : null
       ]}
     </Text>
@@ -301,7 +303,10 @@ function parseToolPayload(
 }
 
 function getToolDiffPreviewLines(summary: ToolSummary): DiffPreviewLine[] {
-  return [];
+  if (!summary.metadata) return [];
+  const diffPreview = summary.metadata.diffPreview;
+  if (typeof diffPreview !== "string" || !diffPreview.trim()) return [];
+  return parseDiffPreview(diffPreview);
 }
 
 export function parseDiffPreview(diffPreview: string): DiffPreviewLine[] {
@@ -324,21 +329,41 @@ export function parseDiffPreview(diffPreview: string): DiffPreviewLine[] {
 }
 
 function DiffPreview({ lines }: { lines: DiffPreviewLine[] }): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const MAX_COLLAPSED_LINES = 5;
+
+  // 统计变更行数
+  const added = lines.filter((l) => l.kind === "added").length;
+  const removed = lines.filter((l) => l.kind === "removed").length;
+
+  // 折叠模式：显示摘要行 + 前 MAX_COLLAPSED_LINES 行
+  const showLines = expanded ? lines : lines.slice(0, MAX_COLLAPSED_LINES);
+  const isCollapsible = lines.length > MAX_COLLAPSED_LINES;
+
   return (
     <Box flexDirection="column" marginLeft={2}>
-      <Text dimColor>└ Changes</Text>
-      <Box flexDirection="column" marginLeft={2}>
-        {lines.map((line, index) => (
-          <Text key={`${index}-${line.marker}-${line.content}`} wrap="truncate-end">
-            <Text color={line.kind === "added" ? "green" : line.kind === "removed" ? "red" : "gray"}>
-              {line.marker}
+      <Text dimColor>
+        {isCollapsible && !expanded
+          ? `└ Changes · +${added}/-${removed} (${lines.length} 行) [按⏎展开]`
+          : `└ Changes · +${added}/-${removed}`}
+      </Text>
+      {expanded || !isCollapsible ? (
+        <Box flexDirection="column" marginLeft={2}>
+          {showLines.map((line, index) => (
+            <Text key={`${index}-${line.marker}-${line.content}`} wrap="truncate-end">
+              <Text color={line.kind === "added" ? "green" : line.kind === "removed" ? "red" : "gray"}>
+                {line.marker}
+              </Text>
+              <Text color={line.kind === "added" ? "green" : line.kind === "removed" ? "red" : undefined}>
+                {line.content}
+              </Text>
             </Text>
-            <Text color={line.kind === "added" ? "green" : line.kind === "removed" ? "red" : undefined}>
-              {line.content}
-            </Text>
-          </Text>
-        ))}
-      </Box>
+          ))}
+        </Box>
+      ) : null}
+      {isCollapsible && expanded ? (
+        <Text dimColor>└ 共 {lines.length} 行 [按⏎折叠]</Text>
+      ) : null}
     </Box>
   );
 }

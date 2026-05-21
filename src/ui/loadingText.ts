@@ -9,6 +9,7 @@ export type LoadingTextInput = {
 };
 
 const STALL_THRESHOLD_MS = 3000;
+const PROGRESS_BAR_WIDTH = 10;
 
 export function buildLoadingText(input: LoadingTextInput): string {
   const { progress, processes, now } = input;
@@ -33,7 +34,22 @@ export function buildLoadingText(input: LoadingTextInput): string {
 
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
   const tokens = progress.formattedTokens || "0";
-  return `Generating... (${elapsedSeconds}s) · ↓ ${tokens} tokens`;
+
+  // 估算进度：假设 30 秒内完成，显示进度条
+  const progressPct = Math.min(100, Math.round((elapsedMs / 10000) * 100)); // 10秒估算
+  const bar = buildProgressBar(progressPct, PROGRESS_BAR_WIDTH);
+
+  return `Generating... (${elapsedSeconds}s) · ↓ ${tokens} tokens · ${bar}`;
+}
+
+/** 构建文本进度条，如 [████░░░░] 40% */
+export function buildProgressBar(pct: number, width: number): string {
+  const clamped = Math.min(100, Math.max(0, Math.round(pct)));
+  const filled = Math.min(width, Math.round((clamped / 100) * width));
+  const empty = width - filled;
+  const filledStr = "\u2588".repeat(filled);  // █
+  const emptyStr = "\u2591".repeat(empty);    // ░
+  return `[${filledStr}${emptyStr}] ${clamped}%`;
 }
 
 function buildProcessLoadingText(processes: RunningProcesses | undefined, now: number): string | null {

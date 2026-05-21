@@ -54,3 +54,14 @@ function buildAssistantMessage(overrides: Partial<SessionMessage>): SessionMessa
     ...overrides
   };
 }
+
+test("parseDiffPreview handles empty input", () => {
+  assert.deepEqual(parseDiffPreview(""), []);
+});
+
+test("parseDiffPreview handles large diff with many lines", () => {
+  const diff = Array.from({ length: 20 }, (_, i) => `+line ${i}`).join("\n");
+  const lines = parseDiffPreview(diff);
+  assert.equal(lines.length, 20);
+  assert.ok(lines.every((l) => l.kind === "added"));
+});

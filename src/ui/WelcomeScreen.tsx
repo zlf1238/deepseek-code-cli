@@ -41,11 +41,27 @@ export function WelcomeScreen({
 }: WelcomeScreenProps): React.ReactElement {
   const tips = useMemo(() => buildWelcomeTips(skills), [skills]);
   const [tipIndex] = useState(() => randomTipIndex(tips.length));
-  const compact = width < TITLE_PANEL_WIDTH + 42;
+  const tiny = width <= 32;
+  const compact = !tiny && width < TITLE_PANEL_WIDTH + 42;
   const cwd = formatHomeRelativePath(projectRoot);
   const contextWindowCapacity = getContextWindowCapacity(settings.model);
   const tip = tips[Math.min(tipIndex, Math.max(0, tips.length - 1))] ?? tips[0];
   const panelWidth = compact ? undefined : Math.min(width, 92);
+
+  // 极窄模式（≤32 列）：只显示标题和一行 tips
+  if (tiny) {
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color="cyanBright">DeepSeek Code</Text>
+        <Text dimColor> v{version || "unknown"}</Text>
+        {tip ? (
+          <Text dimColor wrap="truncate-end">
+            {tip.label} - {tip.description}
+          </Text>
+        ) : null}
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" marginBottom={1}>
