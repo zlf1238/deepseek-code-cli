@@ -53,19 +53,23 @@ function logDebug(...args: unknown[]): void {
   } catch { /* 日志写入失败不阻塞 */ }
 }
 
-// 模块加载时记录终端信息
-logDebug("MODULE_LOAD", "fd:", process.stdout?.fd, "isTTY:", process.stdout?.isTTY, "TERMINAL_FD:", TERMINAL_FD);
+// 模块加载时记录终端信息和环境变量
+const ttyPath = process.stdout.isTTY ? "tty" : "pipe";
+const envTerm = (process.env as Record<string, string>)["TERM"] || "unset";
+const envTermProg = (process.env as Record<string, string>)["TERM_PROGRAM"] || "unset";
+logDebug("MODULE_LOAD", "fd:", TERMINAL_FD, "out.isTTY:", process.stdout?.isTTY, "stderr.isTTY:", process.stderr?.isTTY, "TERM:", envTerm, "TERM_PROGRAM:", envTermProg, "rows:", process.stdout?.rows);
 // ──────────────
 // 用 fs.writeSync 直接写文件描述符，绕过 Node.js 的 stdout 缓冲区。
 // 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
 // 在 Ink 渲染之后才到达终端，旧内容因此残留。
 function writeTerminal(data: string): void {
   const preview = data.length > 80 ? data.slice(0, 40) + "..." + data.slice(-40) : data;
+  const dataLen = Buffer.byteLength(data, "utf8");
   try {
     const written = fs.writeSync(TERMINAL_FD, data);
-    logDebug("WRITE_OK fd:", TERMINAL_FD, "bytes:", written, "preview:", JSON.stringify(preview));
+    logDebug("WRITE_OK fd:", TERMINAL_FD, "bytes:", written, "bufLen:", dataLen, "preview:", JSON.stringify(preview));
   } catch (e) {
-    logDebug("WRITE_FAIL fd:", TERMINAL_FD, "err:", e, "fallback to process.stdout.write");
+    logDebug("WRITE_FAIL fd:", TERMINAL_FD, "err:", String(e), "fallback to process.stdout.write");
     process.stdout.write(data);
   }
 }
@@ -84,18 +88,19 @@ function clearTerminal(): void {
   const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
   const rows = process.stdout.rows || 40;
   const lineCount = Math.max(rows * 30, 10000);
-  logDebug("CLEAR rows:", rows, "lineCount:", lineCount, "caller:", callStack);
+  logDebug("CLEAR_START rows:", rows, "lineCount:", lineCount, "caller:", callStack);
+
+  // 方案 A：RIS（Reset to Initial State）—— 完全复位终端，清除显示和滚动缓冲区
+  // RIS 是 VT100+ 标准序列，几乎所有终端（含 Windows Terminal）都支持。
+  writeTerminal("\u001Bc");
+  logDebug("  RIS written");
+
+  // 方案 B：标准清屏 + 换行刷屏（作为补充）
   writeTerminal("\u001B[2J\u001B[3J\u001B[H");
   writeTerminal("\u001B[3J");
-
-  // Fallback: blank-line fill pushes old content out of scrollback.
-  // Use a large count (>=3000) to exhaust Windows Terminal's large default
-  // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
-  // 使用 \r\n 而非 \n：Ink 将终端设为 raw 模式后，\n 不附带 \r（回车），
-  // 光标不会回到行首，导致换行刷屏效果打折。
   writeTerminal("\r\n".repeat(lineCount));
-
   writeTerminal("\u001B[2J\u001B[H");
+  logDebug("CLEAR_DONE");
 }
 
 type View = "chat" | "session-list";
