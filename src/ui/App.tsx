@@ -34,14 +34,19 @@ import {
 const DEFAULT_MODEL = "deepseek-v4-pro";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
+// 在模块加载时（Ink 修补 process.stdout 之前）缓存原始终端 fd。
+// Ink 启动后 process.stdout 被替换为内部流，此时 process.stdout.fd
+// 可能指向 Ink 的内部管道而非原始终端，导致清屏序列被写入错误目标。
+const TERMINAL_FD = process.stdout.fd;
+
 // 用 fs.writeSync 直接写文件描述符，绕过 Node.js 的 stdout 缓冲区。
 // 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
 // 在 Ink 渲染之后才到达终端，旧内容因此残留。
 function writeTerminal(data: string): void {
   try {
-    fs.writeSync(process.stdout.fd, data);
+    fs.writeSync(TERMINAL_FD, data);
   } catch {
-    // fd 不可用时的降级方案
+    // fd 不可用时的降级方案：直接写 process.stdout
     process.stdout.write(data);
   }
 }
@@ -53,7 +58,7 @@ function writeTerminal(data: string): void {
  * 1. Standard escape sequences to clear display and scrollback
  * 2. Fill several screenfuls of blank lines to push remaining old
  *    scrollback content out of the buffer (fallback for terminals
- *    where \\u001B[3J is ignored).
+ *    where \u001B[3J is ignored).
  * 3. Final clear and home cursor.
  */
 function clearTerminal(): void {
@@ -63,8 +68,11 @@ function clearTerminal(): void {
   // Fallback: blank-line fill pushes old content out of scrollback.
   // Use a large count (>=3000) to exhaust Windows Terminal's large default
   // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
+  // 使用 \r\n 而非 \n：Ink 将终端设为 raw 模式后，\n 不附带 \r（回车），
+  // 光标不会回到行首，导致换行刷屏效果打折。
   const rows = process.stdout.rows || 40;
-  writeTerminal("\n".repeat(Math.max(rows * 30, 10000)));
+  const lineCount = Math.max(rows * 30, 10000);
+  writeTerminal("\r\n".repeat(lineCount));
 
   writeTerminal("\u001B[2J\u001B[H");
 }
