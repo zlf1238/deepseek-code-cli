@@ -63,23 +63,20 @@ logDebug("MODULE_LOAD", "fd:", TERMINAL_FD, "out.isTTY:", process.stdout?.isTTY,
 // 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
 // 在 Ink 渲染之后才到达终端，旧内容因此残留。
 function writeTerminal(data: string): void {
-  const preview = data.length > 80 ? data.slice(0, 40) + "..." + data.slice(-40) : data;
   const dataLen = Buffer.byteLength(data, "utf8");
-  // 方案 A：写缓存 fd 1（可能被 Node.js/Ink 重定向）
+  // 方案 A：写缓存 fd 1
   try {
     const written1 = fs.writeSync(TERMINAL_FD, data);
     logDebug("WRITE_FD1 fd:", TERMINAL_FD, "bytes:", written1, "bufLen:", dataLen);
   } catch (e) {
     logDebug("WRITE_FD1_FAIL err:", String(e));
   }
-  // 方案 B：直接写 /dev/tty（绕过所有流层）
+  // 方案 B：写 /dev/tty（直连终端，绕过所有流层）
   try {
     const ttyFd = fs.openSync("/dev/tty", "w");
     const written2 = fs.writeSync(ttyFd, data);
     fs.closeSync(ttyFd);
-    if (written2 !== dataLen) {
-      logDebug("WRITE_TTY PARTIAL bytes:", written2, "of", dataLen);
-    }
+    logDebug("WRITE_TTY bytes:", written2, "bufLen:", dataLen);
   } catch (e) {
     logDebug("WRITE_TTY_FAIL err:", String(e));
   }
@@ -97,10 +94,19 @@ function writeTerminal(data: string): void {
  */
 function clearTerminal(): void {
   const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
-  logDebug("CLEAR_START caller:", callStack);
+  const rows = process.stdout.rows || 52;
+  // 用换行刷屏替代 ANSI 清屏序列：ConPTY 可能不支持 \u001B[2J/\u001B[3J/\u001Bc
+  // 刷满 3 屏确保旧内容被推出可见区域
+  const lineCount = rows * 3;
+  logDebug("CLEAR_START rows:", rows, "lineCount:", lineCount, "caller:", callStack);
 
-  // 双路写清屏序列：fd 1 + /dev/tty，至少一个能生效
-  writeTerminal("\u001Bc\u001B[2J\u001B[3J\u001B[H");
+  // 先写 ANSI 清屏（可能不起作用，但不影响）
+  writeTerminal("\u001Bc");
+  writeTerminal("\u001B[2J\u001B[3J\u001B[H");
+
+  // 换行刷屏（保障方案）
+  writeTerminal("\r\n".repeat(lineCount));
+  writeTerminal("\u001B[H");
   logDebug("CLEAR_DONE");
 }
 
