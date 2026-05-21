@@ -1,6 +1,6 @@
 /** handlePrompt 逻辑抽取：将提交处理逻辑与 UI 渲染分离 */
 import { useCallback, useRef } from "react";
-import type { SessionManager, UserPromptContent, SessionMessage, SessionEntry, SkillInfo, SessionStatus } from "../session";
+import type { SessionManager, UserPromptContent, SessionMessage, SessionEntry, SkillInfo, SessionStatus, LlmStreamProgress } from "../session";
 import type { PromptSubmission } from "./PromptInput";
 import { buildCompletionSummary } from "./completionSummary";
 import {
@@ -25,7 +25,7 @@ export type PromptHandlerDeps = {
   setRunningProcesses: (p: SessionEntry["processes"] | null) => void;
   setActiveStatus: (s: SessionStatus | null) => void;
   setDismissedQuestionIds: (ids: Set<string>) => void;
-  setStreamProgress: (p: unknown) => void;
+  setStreamProgress: (p: LlmStreamProgress | null) => void;
   setView: (v: "chat" | "session-list") => void;
   refreshSessionsList: () => void;
   refreshSkills: (sessionId?: string) => Promise<void>;

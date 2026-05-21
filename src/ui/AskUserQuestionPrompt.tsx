@@ -125,7 +125,7 @@ export function AskUserQuestionPrompt({ questions, onSubmit, onCancel }: Props):
         toggleOption(options[nextIndex]?.value ?? "");
       }
     }
-  });
+  }, true);
 
   if (!question) {
     return null;

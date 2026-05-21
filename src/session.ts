@@ -190,6 +190,8 @@ export type MessageMeta = {
   /** 步骤指示器，在隐藏工具执行结果时显示精简步骤描述 */
   isStepIndicator?: boolean;
   stepDescription?: string;
+  /** 标记为工具组消息，用于分类展示工具调用摘要 */
+  isToolGroup?: boolean;
 };
 
 export type SessionMessage = {

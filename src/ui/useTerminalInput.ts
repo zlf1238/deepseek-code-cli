@@ -9,6 +9,13 @@ type InputHandler = (input: string, key: InputKey) => void;
  * 自定义终端输入 hook。
  * 替代 Ink 的 useInput，支持 bracketed paste mode 和更精确的按键解析。
  *
+ * 核心优化：使用 setImmediate 批处理输入事件。
+ * 在 WSL ConPTY 环境下，Ink 每次渲染会写 stdout，而 ConPTY 的
+ * stdin/stdout 共享同一管道，渲染期间的 stdout 写入会阻塞 stdin
+ * 事件投递，导致快速按键丢失。通过 setImmediate 将同一 I/O 轮次
+ * 内的所有按键累积后一次性处理，React 批量更新状态只触发一次渲染，
+ * 大幅减少 stdout 写入频率，消除 ConPTY 管道竞争。
+ *
  * @param inputHandler 输入处理回调
  * @param isActive 是否激活（为 false 时不监听）
  */
@@ -19,6 +26,10 @@ export function useTerminalInput(
   const { stdin } = useStdin();
   const internal_exitOnCtrlC = false;
 
+  // 用 ref 存储 handler，避免因引用变化导致 useEffect 重建 stdin 监听器
+  const handlerRef = useRef(inputHandler);
+  handlerRef.current = inputHandler;
+
   useEffect(() => {
     if (!isActive || !stdin) {
       return;
@@ -27,10 +38,37 @@ export function useTerminalInput(
     let pasteBuffer = "";
     let isPasting = false;
 
+    // ── 输入批处理 ──
+    // 累积解析后的按键事件，在 setImmediate 回调中一次性投递给 React。
+    // 同一 I/O 轮次内的多个 data 事件会被合并为一次 handlerRef.current 调用，
+    // React 18 自动批处理会将多个 setBuffer 合并为一次渲染。
+    let pendingInputs: Array<{ input: string; key: InputKey }> = [];
+    let flushHandle: ReturnType<typeof setImmediate> | null = null;
+
+    const flushPendingInputs = (): void => {
+      flushHandle = null;
+      const inputs = pendingInputs;
+      pendingInputs = [];
+      for (const { input, key } of inputs) {
+        handlerRef.current(input, key);
+      }
+    };
+
+    const scheduleFlush = (): void => {
+      if (flushHandle === null) {
+        flushHandle = setImmediate(flushPendingInputs);
+      }
+    };
+
+    const enqueueInput = (input: string, key: InputKey): void => {
+      pendingInputs.push({ input, key });
+      scheduleFlush();
+    };
+
     const processNormal = (raw: string): void => {
       const { input, key } = parseTerminalInput(raw);
       if (!(input === "c" && key.ctrl) || !internal_exitOnCtrlC) {
-        inputHandler(input, key);
+        enqueueInput(input, key);
       }
     };
 
@@ -45,7 +83,7 @@ export function useTerminalInput(
           isPasting = false;
           const cleaned = pasteBuffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
           if (cleaned) {
-            inputHandler(cleaned, NO_MODIFIERS);
+            enqueueInput(cleaned, NO_MODIFIERS);
           }
           pasteBuffer = "";
           const remaining = raw.slice(endIdx + 6);
@@ -73,7 +111,19 @@ export function useTerminalInput(
 
     stdin.on("data", handleData);
     return () => {
+      // 清理时立即投递所有待处理输入，避免丢失
+      if (flushHandle !== null) {
+        clearImmediate(flushHandle);
+        flushHandle = null;
+      }
+      if (pendingInputs.length > 0) {
+        const inputs = pendingInputs;
+        pendingInputs = [];
+        for (const { input, key } of inputs) {
+          handlerRef.current(input, key);
+        }
+      }
       stdin.off("data", handleData);
     };
-  }, [isActive, stdin, inputHandler]);
+  }, [isActive, stdin]);
 }
