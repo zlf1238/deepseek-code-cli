@@ -39,14 +39,32 @@ const DEFAULT_BASE_URL = "https://api.deepseek.com";
 // 可能指向 Ink 的内部管道而非原始终端，导致清屏序列被写入错误目标。
 const TERMINAL_FD = process.stdout.fd;
 
+
+// ── 排查日志 ──
+const LOG_PATH = "/mnt/d/Java/IdeaProjects/deepseek-code-cli/resume-debug.log";
+const LOG_FLAG = fs.existsSync(LOG_PATH) ? "a" : "w";
+
+function logDebug(...args: unknown[]): void {
+  const ts = new Date().toISOString().slice(11, 23);
+  const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
+  try {
+    fs.writeFileSync(LOG_PATH, `[${ts}] ${msg}\n`, { flag: LOG_FLAG } as any);
+  } catch { /* 日志写入失败不阻塞 */ }
+}
+
+// 模块加载时记录终端信息
+logDebug("MODULE_LOAD", "fd:", process.stdout?.fd, "isTTY:", process.stdout?.isTTY, "TERMINAL_FD:", TERMINAL_FD);
+// ──────────────
 // 用 fs.writeSync 直接写文件描述符，绕过 Node.js 的 stdout 缓冲区。
 // 在 WSL + ConPTY 下 process.stdout.write 可能被缓冲，导致清屏序列
 // 在 Ink 渲染之后才到达终端，旧内容因此残留。
 function writeTerminal(data: string): void {
+  const preview = data.length > 80 ? data.slice(0, 40) + "..." + data.slice(-40) : data;
   try {
-    fs.writeSync(TERMINAL_FD, data);
-  } catch {
-    // fd 不可用时的降级方案：直接写 process.stdout
+    const written = fs.writeSync(TERMINAL_FD, data);
+    logDebug("WRITE_OK fd:", TERMINAL_FD, "bytes:", written, "preview:", JSON.stringify(preview));
+  } catch (e) {
+    logDebug("WRITE_FAIL fd:", TERMINAL_FD, "err:", e, "fallback to process.stdout.write");
     process.stdout.write(data);
   }
 }
@@ -62,6 +80,10 @@ function writeTerminal(data: string): void {
  * 3. Final clear and home cursor.
  */
 function clearTerminal(): void {
+  const callStack = new Error().stack?.split("\n").slice(2, 5).map(l => l.trim()).join(" | ") || "";
+  const rows = process.stdout.rows || 40;
+  const lineCount = Math.max(rows * 30, 10000);
+  logDebug("CLEAR rows:", rows, "lineCount:", lineCount, "caller:", callStack);
   writeTerminal("\u001B[2J\u001B[3J\u001B[H");
   writeTerminal("\u001B[3J");
 
@@ -70,8 +92,6 @@ function clearTerminal(): void {
   // scrollback buffer (~9000 lines) on WSL2 via ConPTY.
   // 使用 \r\n 而非 \n：Ink 将终端设为 raw 模式后，\n 不附带 \r（回车），
   // 光标不会回到行首，导致换行刷屏效果打折。
-  const rows = process.stdout.rows || 40;
-  const lineCount = Math.max(rows * 30, 10000);
   writeTerminal("\r\n".repeat(lineCount));
 
   writeTerminal("\u001B[2J\u001B[H");
@@ -321,6 +341,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
 
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
+      logDebug("HANDLE_SELECT sessionId:", sessionId, "curr_view:", view, "messages.length:", messages.length);
       // 先切换会话、清屏、切视图、重置消息 —— 这些操作必须在加载数据之前完成。
       // 原因：React 17 在 Ink 的 useInput 回调（非 React 事件）中不会批处理状态更新，
       // 每个 dispatch / setState 都会触发一次同步渲染。若 setView("chat") 在最后执行，
@@ -331,6 +352,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
       clearTerminal();
       // 立即切换到 chat 视图，卸载 SessionList
       setView("chat");
+      logDebug("VIEW_CHANGED_to_chat (handleSelectSession)");
       // resetMessages increments staticKey → Static re-renders; 清空旧消息
       dispatchMessages({ type: "resetMessages" });
 
@@ -570,10 +592,12 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
           sessions={sessions}
           onSelect={(id) => void handleSelectSession(id)}
           onCancel={() => {
+            logDebug("ON_CANCEL (Esc pressed)");
             clearTerminal();
             // resetMessages increments staticKey so Static re-renders
             dispatchMessages({ type: "resetMessages" });
             setView("chat");
+            logDebug("VIEW_CHANGED_to_chat (onCancel)");
           }}
           onDelete={(ids) => {
             sessionManager.removeSessions(ids);

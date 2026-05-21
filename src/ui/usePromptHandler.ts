@@ -77,6 +77,7 @@ export function usePromptHandler(deps: PromptHandlerDeps) {
       }
 
       if (submission.command === "resume") {
+        console.log("[resume-debug] HANDLE_RESUME called");
         clearTerminal();
         dispatchMessages({ type: "resetMessages" });
         setStatusLine("");
@@ -84,8 +85,10 @@ export function usePromptHandler(deps: PromptHandlerDeps) {
         setRunningProcesses(null);
         setActiveStatus(null);
         setView("session-list");
+        console.log("[resume-debug] VIEW_CHANGED_to_session-list, sessions count:", sessionManager.listSessions().length);
         refreshSessionsList();
         isSubmittingRef.current = false;
+        console.log("[resume-debug] HANDLE_RESUME done");
         return;
       }
 
