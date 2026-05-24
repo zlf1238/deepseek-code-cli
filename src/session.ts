@@ -1834,8 +1834,20 @@ The candidate skills are as follows:\n\n`;
     };
 
     switch (name) {
-      case "read":
-        return `正在读取文件  ${firstValue(["file_path"]) || ""}`;
+      case "read": {
+        const fp = firstValue(["file_path"]) || "";
+        const pages = typeof args.pages === "string" ? args.pages : "";
+        if (pages) return `正在读取文件  ${fp}  页码${pages}`;
+        const offset = typeof args.offset === "number" ? args.offset : undefined;
+        const limit = typeof args.limit === "number" ? args.limit : undefined;
+        if (offset !== undefined && limit !== undefined) {
+          return `正在读取文件  ${fp}  行${offset}-${offset + limit - 1}`;
+        }
+        if (offset !== undefined) {
+          return `正在读取文件  ${fp}  行${offset}-末尾`;
+        }
+        return `正在读取文件  ${fp}  全文`;
+      }
       case "write":
         return `正在创建文件  ${firstValue(["file_path"]) || ""}`;
       case "edit":

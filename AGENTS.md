@@ -227,6 +227,27 @@ This project is indexed by GitNexus as **deepseek-code** (2696 symbols, 5143 rel
 - **原因**：`directTerminalWrite` 和 Ink 的 `stdout.write` 共享同一个 fd，两者的输出在 ConPTY 缓冲区中按时间序混合，但 Ink 的虚拟屏幕状态不与物理终端同步。
 - **解决**：最可靠的策略是**在视图切换时完全卸载 `Static` 组件**（用条件渲染），而非仅依赖 `clearTerminal`。如果需要 `clearTerminal` + 重新渲染的组合，确保两者之间有足够的同步点（如 `staticKey` 递增）。
 
+## 17. 大文件 read 策略分场景 — 不要无脑"完整读"或"逐段读"（2026-05-23 新增）
+
+- **现象**：在理解/修改 Vue 文件时，采用"grep 定位行号 → 逐个 read offset 读 20-40 行小块"的串行模式，同一文件被逐段 read 了 16 次。handle_read 只用了 1 次。edit 时因 `isPartialView=true`（offset 读导致）且没用 `snippet_id` 被拒，又得重新 read。
+- **根因**：
+  1. 每个关注点单独发起一次 read，未并行
+  2. 未理解 edit 工具的硬约束（`edit-handler.ts:187`）：`!snippet && !isFullFileView` 时直接拒绝——offset 读导致 `isPartialView=true`，必须用 `snippet_id` 才能绕过
+  3. 逐段串行 read 不仅浪费 I/O，还在多轮对话中累积重复内容
+
+- **分场景决策（关键：`isFullFileView` 的三个条件 = 无 offset + 无 limit + 非 partial）**：
+
+  | 条件 | 最优策略 | 理由 |
+  |------|---------|------|
+  | 小文件（<300行）需修改 | **完整 read 无脑选** | ~6K tokens 一次性投入，edit 无风险 |
+  | 大文件（>500行）需修改 3-4 个分散区域 | **grep 定位 → 并行 offset read 覆盖所有关注点 → edit 用 `snippet_id`** | 避免 24K+ 沉没成本，`snippet_id` 绕过 `isPartialView` 检查 |
+  | 大文件（>500行）纯探索理解，不修改 | **grep 定位 → 并行 offset read，够了就停** | 无需编辑，没有 `isPartialView` 限制 |
+  | 跨轮次反复修改同一文件 | **完整 read（一次性买断）** | 首轮 24K 投入，后续跨 turn 用 `handle_read` 切片（缓存丢失时自动回源，但仍比重新 read 便宜） |
+
+- **数据支撑**：white_work/index.vue（1194行）串行 16 次 offset read ≈ 15K tokens；若改为并行 3-4 次 offset read ≈ 3K tokens，节省 80%。完整 read 则为 24K，比并行方案多 8 倍。
+
+- **edit 的 snippet_id 是关键逃生口**：即使文件只读了部分（`isPartialView=true`），只要 edit 传了 `snippet_id`，就能绕过 `isFullFileView` 检查。所以 offset read + snippet_id edit 是一个完全合法的低成本路径。
+
 ## 14. P0 优先级需重新评估 — 非所有 P0 都值得做
 
 - **现象**：需求 1.1（状态管理重构，P0）被列为最高优先级，但在实际评估中发现：将 18 个简单 `useState` 聚合为 `useReducer` 的边际收益极低（这些状态独立更新、频率不高），而风险极高（需重写 App.tsx 中几乎所有函数）。最终 1.1 成为唯一未完成项。
