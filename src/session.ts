@@ -1626,6 +1626,10 @@ The candidate skills are as follows:\n\n`;
     };
   }
 
+  /** 加载 AGENTS.md 指令，按优先级从高到低合并所有存在的文件。
+   *  优先级：项目 .deepseek-code/AGENTS.md > 项目 AGENTS.md > 全局 ~/.deepseek-code/AGENTS.md
+   *  合并模式：所有存在的文件拼接为一个整体，项目特定规则在前，全局通用规则在后。
+   *  全局文件仅当内容不重复时追加（避免项目文件中已包含相同段落）。 */
   private loadAgentInstructions(): string | null {
     const candidatePaths = [
       path.join(this.projectRoot, ".deepseek-code", "AGENTS.md"),
@@ -1633,6 +1637,7 @@ The candidate skills are as follows:\n\n`;
       path.join(os.homedir(), ".deepseek-code", "AGENTS.md")
     ];
 
+    const blocks: string[] = [];
     for (const candidatePath of candidatePaths) {
       try {
         if (!fs.existsSync(candidatePath)) {
@@ -1640,14 +1645,37 @@ The candidate skills are as follows:\n\n`;
         }
         const content = fs.readFileSync(candidatePath, "utf8").trim();
         if (content) {
-          return content;
+          blocks.push(content);
         }
       } catch {
         continue;
       }
     }
 
-    return null;
+    if (blocks.length === 0) return null;
+
+    // 去重：后加载的全局文件中，跳过与前文完全重复的二级标题段落
+    if (blocks.length > 1) {
+      const seenSections = new Set<string>();
+      // 先收集所有项目级文件（前N-1个）中的 ## 标题
+      for (let i = 0; i < blocks.length - 1; i++) {
+        for (const m of blocks[i].matchAll(/^##\s+(.+)$/gm)) {
+          seenSections.add(m[1].trim());
+        }
+      }
+      // 对全局文件，移除已在项目文件中出现过的 ## 段落
+      const globalBlock = blocks[blocks.length - 1];
+      const sections = globalBlock.split(/(?=^##\s)/m);
+      const filtered = sections.filter((section) => {
+        const titleMatch = section.match(/^##\s+(.+)$/m);
+        if (!titleMatch) return true; // 非 ## 开头的内容保留（如文件头）
+        return !seenSections.has(titleMatch[1].trim());
+      });
+      blocks[blocks.length - 1] = filtered.join("").trim();
+    }
+
+    const merged = blocks.filter(Boolean).join("\n\n---\n\n");
+    return merged || null;
   }
 
   private buildSystemMessage(
