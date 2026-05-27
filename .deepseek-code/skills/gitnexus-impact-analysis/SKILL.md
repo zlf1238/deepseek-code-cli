@@ -1,61 +1,61 @@
 ---
 name: gitnexus-impact-analysis
-description: "Use when the user wants to know what will break if they change something, or needs safety analysis before editing code. Examples: \"Is it safe to change X?\", \"What depends on this?\", \"What will break?\""
+description: "当用户想知道修改某内容会破坏什么，或在编辑代码前需要安全分析时使用。示例：\"改 X 安全吗？\"、\"什么依赖了这个？\"、\"会破坏什么？\""
 ---
 
-# Impact Analysis with GitNexus
+# 使用 GitNexus 进行影响面分析
 
-## When to Use
+## 何时使用
 
-- "Is it safe to change this function?"
-- "What will break if I modify X?"
-- "Show me the blast radius"
-- "Who uses this code?"
-- Before making non-trivial code changes
-- Before committing — to understand what your changes affect
+- "改这个函数安全吗？"
+- "如果我修改 X，会破坏什么？"
+- "显示影响范围"
+- "谁用了这段代码？"
+- 在做出重要的代码变更之前
+- 在提交之前——了解你的变更影响了什么
 
-## Workflow
-
-```
-1. gitnexus_impact({target: "X", direction: "upstream"})  → What depends on this
-2. READ gitnexus://repo/{name}/processes                   → Check affected execution flows
-3. gitnexus_detect_changes()                               → Map current git changes to affected flows
-4. Assess risk and report to user
-```
-
-> If "Index is stale" → run `npx gitnexus analyze` in terminal.
-
-## Checklist
+## 工作流
 
 ```
-- [ ] gitnexus_impact({target, direction: "upstream"}) to find dependents
-- [ ] Review d=1 items first (these WILL BREAK)
-- [ ] Check high-confidence (>0.8) dependencies
-- [ ] READ processes to check affected execution flows
-- [ ] gitnexus_detect_changes() for pre-commit check
-- [ ] Assess risk level and report to user
+1. gitnexus_impact({target: "X", direction: "upstream"})  → 什么依赖了这个
+2. READ gitnexus://repo/{name}/processes                   → 检查受影响的执行流
+3. gitnexus_detect_changes()                               → 将当前 git 变更映射到受影响的流
+4. 评估风险并报告给用户
 ```
 
-## Understanding Output
+> 如果提示"Index is stale"→ 在终端运行 `npx gitnexus analyze`。
 
-| Depth | Risk Level       | Meaning                  |
-| ----- | ---------------- | ------------------------ |
-| d=1   | **WILL BREAK**   | Direct callers/importers |
-| d=2   | LIKELY AFFECTED  | Indirect dependencies    |
-| d=3   | MAY NEED TESTING | Transitive effects       |
+## 检查清单
 
-## Risk Assessment
+```
+- [ ] gitnexus_impact({target, direction: "upstream"}) 查找依赖者
+- [ ] 先审查 d=1 的项（这些会直接坏掉）
+- [ ] 检查高置信度（>0.8）的依赖
+- [ ] READ 进程检查受影响的执行流
+- [ ] gitnexus_detect_changes() 做提交前检查
+- [ ] 评估风险级别并报告给用户
+```
 
-| Affected                       | Risk     |
+## 理解输出
+
+| 深度 | 风险级别       | 含义                     |
+| ---- | -------------- | ------------------------ |
+| d=1  | **直接破裂**   | 直接调用者/导入者         |
+| d=2  | **可能受影响** | 间接依赖                 |
+| d=3  | **可能需要测试** | 传递性影响             |
+
+## 风险评估
+
+| 受影响的范围                    | 风险     |
 | ------------------------------ | -------- |
-| <5 symbols, few processes      | LOW      |
-| 5-15 symbols, 2-5 processes    | MEDIUM   |
-| >15 symbols or many processes  | HIGH     |
-| Critical path (auth, payments) | CRITICAL |
+| <5 个符号，少量进程             | 低       |
+| 5-15 个符号，2-5 个进程         | 中       |
+| >15 个符号或多个进程            | 高       |
+| 关键路径（认证、支付）          | 严重     |
 
-## Tools
+## 工具
 
-**gitnexus_impact** — the primary tool for symbol blast radius:
+**gitnexus_impact** — 符号影响面的主要工具：
 
 ```
 gitnexus_impact({
@@ -65,33 +65,33 @@ gitnexus_impact({
   maxDepth: 3
 })
 
-→ d=1 (WILL BREAK):
+→ d=1 (直接破裂):
   - loginHandler (src/auth/login.ts:42) [CALLS, 100%]
   - apiMiddleware (src/api/middleware.ts:15) [CALLS, 100%]
 
-→ d=2 (LIKELY AFFECTED):
+→ d=2 (可能受影响):
   - authRouter (src/routes/auth.ts:22) [CALLS, 95%]
 ```
 
-**gitnexus_detect_changes** — git-diff based impact analysis:
+**gitnexus_detect_changes** — 基于 git diff 的影响面分析：
 
 ```
 gitnexus_detect_changes({scope: "staged"})
 
-→ Changed: 5 symbols in 3 files
-→ Affected: LoginFlow, TokenRefresh, APIMiddlewarePipeline
-→ Risk: MEDIUM
+→ 变更: 3 个文件中的 5 个符号
+→ 受影响: LoginFlow, TokenRefresh, APIMiddlewarePipeline
+→ 风险: 中
 ```
 
-## Example: "What breaks if I change validateUser?"
+## 示例："如果我改 validateUser，会破坏什么？"
 
 ```
 1. gitnexus_impact({target: "validateUser", direction: "upstream"})
-   → d=1: loginHandler, apiMiddleware (WILL BREAK)
-   → d=2: authRouter, sessionManager (LIKELY AFFECTED)
+   → d=1: loginHandler, apiMiddleware (直接破裂)
+   → d=2: authRouter, sessionManager (可能受影响)
 
 2. READ gitnexus://repo/my-app/processes
-   → LoginFlow and TokenRefresh touch validateUser
+   → LoginFlow 和 TokenRefresh 涉及 validateUser
 
-3. Risk: 2 direct callers, 2 processes = MEDIUM
+3. 风险: 2 个直接调用者, 2 个进程 = 中
 ```

@@ -1,83 +1,83 @@
 ---
 name: gitnexus-cli
-description: "Use when the user needs to run GitNexus CLI commands like analyze/index a repo, check status, clean the index, generate a wiki, or list indexed repos. Examples: \"Index this repo\", \"Reanalyze the codebase\", \"Generate a wiki\""
+description: "当用户需要运行 GitNexus CLI 命令时使用，如分析/索引仓库、检查状态、清理索引、生成 wiki 或列出已索引的仓库。示例：\"索引此仓库\"、\"重新分析代码库\"、\"生成 wiki\""
 ---
 
-# GitNexus CLI Commands
+# GitNexus CLI 命令
 
-All commands work via `npx` — no global install required.
+所有命令通过 `npx` 运行——无需全局安装。
 
-## Commands
+## 命令
 
-### analyze — Build or refresh the index
+### analyze — 构建或刷新索引
 
 ```bash
 npx gitnexus analyze
 ```
 
-Run from the project root. This parses all source files, builds the knowledge graph, writes it to `.gitnexus/`, and generates CLAUDE.md / AGENTS.md context files.
+在项目根目录运行。此命令解析所有源文件、构建知识图谱、写入 `.gitnexus/` 目录，并生成 CLAUDE.md / AGENTS.md 上下文文件。
 
-| Flag           | Effect                                                           |
-| -------------- | ---------------------------------------------------------------- |
-| `--force`      | Force full re-index even if up to date                           |
-| `--embeddings` | Enable embedding generation for semantic search (off by default) |
-| `--drop-embeddings` | Drop existing embeddings on rebuild. By default, an `analyze` without `--embeddings` preserves them. |
+| 标志             | 作用                                                     |
+| --------------- | -------------------------------------------------------- |
+| `--force`       | 即使已是最新也强制完全重建索引                               |
+| `--embeddings`  | 启用嵌入向量生成以支持语义搜索（默认关闭）                     |
+| `--drop-embeddings` | 重建时丢弃现有嵌入向量。默认情况下，不带 `--embeddings` 的 `analyze` 会保留它们。 |
 
-**When to run:** First time in a project, after major code changes, or when `gitnexus://repo/{name}/context` reports the index is stale. In Claude Code, a PostToolUse hook detects staleness after `git commit` and `git merge` and notifies the agent to run `analyze` — the hook does not run analyze itself, to avoid blocking the agent for up to 120s and risking KuzuDB corruption on timeout.
+**何时运行：** 首次进入项目时、重大代码变更后、或 `gitnexus://repo/{name}/context` 报告索引过期时。在 Claude Code 中，PostToolUse 钩子在 `git commit` 和 `git merge` 后检测过期状态并通知智能体运行 `analyze`——钩子本身不执行 analyze，以避免阻塞智能体长达 120 秒并在超时时导致 KuzuDB 损坏。
 
-### status — Check index freshness
+### status — 检查索引新鲜度
 
 ```bash
 npx gitnexus status
 ```
 
-Shows whether the current repo has a GitNexus index, when it was last updated, and symbol/relationship counts. Use this to check if re-indexing is needed.
+显示当前仓库是否有 GitNexus 索引、最后更新时间以及符号/关系计数。用于检查是否需要重建索引。
 
-### clean — Delete the index
+### clean — 删除索引
 
 ```bash
 npx gitnexus clean
 ```
 
-Deletes the `.gitnexus/` directory and unregisters the repo from the global registry. Use before re-indexing if the index is corrupt or after removing GitNexus from a project.
+删除 `.gitnexus/` 目录并从全局注册表中注销该仓库。在索引损坏时重建前使用，或从项目中移除 GitNexus 时使用。
 
-| Flag      | Effect                                            |
-| --------- | ------------------------------------------------- |
-| `--force` | Skip confirmation prompt                          |
-| `--all`   | Clean all indexed repos, not just the current one |
+| 标志      | 作用                                       |
+| -------- | ------------------------------------------ |
+| `--force` | 跳过确认提示                               |
+| `--all`   | 清理所有已索引的仓库，不仅限于当前仓库       |
 
-### wiki — Generate documentation from the graph
+### wiki — 从图谱生成文档
 
 ```bash
 npx gitnexus wiki
 ```
 
-Generates repository documentation from the knowledge graph using an LLM. Requires an API key (saved to `~/.gitnexus/config.json` on first use).
+使用 LLM 从知识图谱生成仓库文档。需要 API 密钥（首次使用时保存到 `~/.gitnexus/config.json`）。
 
-| Flag                | Effect                                    |
+| 标志                | 作用                                      |
 | ------------------- | ----------------------------------------- |
-| `--force`           | Force full regeneration                   |
-| `--model <model>`   | LLM model (default: minimax/minimax-m2.5) |
-| `--base-url <url>`  | LLM API base URL                          |
-| `--api-key <key>`   | LLM API key                               |
-| `--concurrency <n>` | Parallel LLM calls (default: 3)           |
-| `--gist`            | Publish wiki as a public GitHub Gist      |
+| `--force`           | 强制完全重新生成                           |
+| `--model <model>`   | LLM 模型（默认：minimax/minimax-m2.5）     |
+| `--base-url <url>`  | LLM API 基础 URL                          |
+| `--api-key <key>`   | LLM API 密钥                              |
+| `--concurrency <n>` | 并行 LLM 调用数（默认：3）                 |
+| `--gist`            | 将 wiki 发布为公开 GitHub Gist            |
 
-### list — Show all indexed repos
+### list — 显示所有已索引仓库
 
 ```bash
 npx gitnexus list
 ```
 
-Lists all repositories registered in `~/.gitnexus/registry.json`. The MCP `list_repos` tool provides the same information.
+列出所有在 `~/.gitnexus/registry.json` 中注册的仓库。MCP 的 `list_repos` 工具提供相同信息。
 
-## After Indexing
+## 索引之后
 
-1. **Read `gitnexus://repo/{name}/context`** to verify the index loaded
-2. Use the other GitNexus skills (`exploring`, `debugging`, `impact-analysis`, `refactoring`) for your task
+1. **读取 `gitnexus://repo/{name}/context`** 验证索引已加载
+2. 根据任务使用其他 GitNexus 技能（`exploring`、`debugging`、`impact-analysis`、`refactoring`）
 
-## Troubleshooting
+## 故障排查
 
-- **"Not inside a git repository"**: Run from a directory inside a git repo
-- **Index is stale after re-analyzing**: Restart Claude Code to reload the MCP server
-- **Embeddings slow**: Omit `--embeddings` (it's off by default) or set `OPENAI_API_KEY` for faster API-based embedding
+- **"Not inside a git repository"**：从 git 仓库内的目录运行
+- **重新分析后索引仍显示过期**：重启 Claude Code 以重新加载 MCP 服务器
+- **嵌入向量生成慢**：省略 `--embeddings`（默认关闭）或设置 `OPENAI_API_KEY` 以使用更快的基于 API 的嵌入
