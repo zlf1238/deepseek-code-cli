@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 import { renderMarkdown } from "./markdown";
 import type { SessionMessage } from "../session";
 
@@ -35,6 +35,9 @@ export function MessageView({
   thinkingIndex,
   totalThinkingCount,
 }: Props): React.ReactElement | null {
+  const { stdout } = useStdout();
+  const termWidth = (stdout?.columns ?? 80);
+
   if (!message.visible) {
     return null;
   }
@@ -75,7 +78,9 @@ export function MessageView({
         return (
           <Box flexDirection="column" marginY={0}>
             <Text dimColor italic>
-              {`  ▸ 思考过程${indexLabel} (${tokens} tokens) [按⏎展开]`}
+              {thinkingIndex
+                ? `  ▸ [${thinkingIndex}] 思考过程${indexLabel} (${tokens} tokens) [Alt+${thinkingIndex} 展开]`
+                : `  ▸ 思考过程${indexLabel} (${tokens} tokens)`}
             </Text>
           </Box>
         );
@@ -84,12 +89,13 @@ export function MessageView({
       // 已展开：显示完整内容
       return (
         <Box flexDirection="column" marginY={0}>
-          <Box flexDirection="row">
-            <Text dimColor italic>{`  ▸ 思考过程`}</Text>
-            <Text dimColor italic>{` [按⏎折叠]`}</Text>
-          </Box>
+          <Text dimColor italic>
+            {thinkingIndex
+              ? `  ▸ [${thinkingIndex}] 思考过程 [Alt+${thinkingIndex} 折叠]`
+              : `  ▸ 思考过程`}
+          </Text>
           <Box marginLeft={4} flexDirection="column">
-            <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+            <Text dimColor>{renderMarkdown(reasoningContent, termWidth - 4)}</Text>
           </Box>
         </Box>
       );
@@ -103,18 +109,18 @@ export function MessageView({
           <Box marginLeft={2} flexDirection="column">
             {isExpanded ? (
               <>
-                <Text dimColor italic>{`  ▸ 思考过程 [按⏎折叠]`}</Text>
+                <Text dimColor italic>{`  ▸ 思考过程`}</Text>
                 <Box marginLeft={2} flexDirection="column">
-                  <Text dimColor>{renderMarkdown(reasoningContent)}</Text>
+                  <Text dimColor>{renderMarkdown(reasoningContent, termWidth - 2)}</Text>
                 </Box>
               </>
             ) : (
-              <Text dimColor italic>{`  ▸ 思考过程 (${estimateTokens(reasoningContent)} tokens) [按⏎展开]`}</Text>
+              <Text dimColor italic>{`  ▸ 思考过程 (${estimateTokens(reasoningContent)} tokens)`}</Text>
             )}
           </Box>
         ) : null}
         <Box marginLeft={2} flexDirection="column">
-          {content ? <Text>{renderMarkdown(content)}</Text> : null}
+          {content ? <Text>{renderMarkdown(content, termWidth - 2)}</Text> : null}
         </Box>
       </Box>
     );

@@ -10,7 +10,7 @@ export type TableData = {
   rows: string[][];
 };
 
-export function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string, maxWidth?: number): string {
   if (!text) {
     return "";
   }
@@ -22,7 +22,7 @@ export function renderMarkdown(text: string): string {
         const langTag = segment.lang ? chalk.dim(`[${segment.lang}]`) + "\n" : "";
         return langTag + chalk.cyan(segment.body);
       }
-      return renderTextBlock(segment.body);
+      return renderTextBlock(segment.body, maxWidth);
     })
     .join("");
 }
@@ -84,7 +84,7 @@ function splitByFences(text: string): FenceSegment[] {
  * 渲染文本块（非代码段），自动识别并渲染 Markdown 表格。
  * 连续以 | 开头的行视为表格，其余行按原 inline 逻辑渲染。
  */
-function renderTextBlock(text: string): string {
+function renderTextBlock(text: string, maxWidth?: number): string {
   const lines = text.split(/\r?\n/);
   const result: string[] = [];
   let tableBuffer: string[] = [];
@@ -92,7 +92,7 @@ function renderTextBlock(text: string): string {
 
   const flushTable = () => {
     if (tableBuffer.length === 0) return;
-    const rendered = renderTableFromLines(tableBuffer);
+    const rendered = renderTableFromLines(tableBuffer, maxWidth);
     if (rendered) {
       result.push(rendered);
     } else {
@@ -237,10 +237,10 @@ const TC = {
  * 将表格行列表渲染为带连续边框线的表格字符串。
  * 外部调用（非测试）可直接使用此函数，测试中可分别测试 parseTableLines 和 renderTable。
  */
-export function renderTableFromLines(lines: string[]): string | null {
+export function renderTableFromLines(lines: string[], maxWidth?: number): string | null {
   const table = parseTableLines(lines);
   if (!table) return null;
-  return renderTable(table);
+  return renderTable(table, maxWidth);
 }
 
 /**

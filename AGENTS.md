@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deepseek-code** (2696 symbols, 5143 relationships, 227 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deepseek-code** (2894 symbols, 5465 relationships, 237 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -22,23 +22,23 @@ This project is indexed by GitNexus as **deepseek-code** (2696 symbols, 5143 rel
 
 ## Resources
 
-| 工具 | 用途 |
-|------|------|
-| `gitnexus_context({name: "符号名"})` | 符号 360 度视图：调用者、被调用者、参与的流程 |
-| `gitnexus_clusters({})` | 列出代码库所有功能聚类及内聚度 |
-| `gitnexus_processes({})` | 列出所有执行流 |
-| `gitnexus_processes({process: "名称"})` | step-by-step 执行链路追踪 |
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/deepseek-code/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/deepseek-code/clusters` | All functional areas |
+| `gitnexus://repo/deepseek-code/processes` | All execution flows |
+| `gitnexus://repo/deepseek-code/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
 | Task | Read this skill file |
 |------|---------------------|
-| Understand architecture / "How does X work?" | `.deepseek-code/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.deepseek-code/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.deepseek-code/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.deepseek-code/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.deepseek-code/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.deepseek-code/skills/gitnexus-cli/SKILL.md` |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 

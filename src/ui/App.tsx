@@ -176,9 +176,21 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
           thinking.toggle(thinking.latestThinkingId);
           setThinkingRenderKey((k) => k + 1);
         }
+      } else if (key.meta && /^[1-9]$/.test(input)) {
+        // Alt+数字键：切换指定编号的思考块
+        const displayIndex = parseInt(input, 10);
+        const arrayIndex = thinking.thinkingIds.length - displayIndex;
+        if (arrayIndex >= 0 && arrayIndex < thinking.thinkingIds.length) {
+          const id = thinking.thinkingIds[arrayIndex];
+          if (id) {
+            clearTerminal();
+            thinking.toggle(id);
+            setThinkingRenderKey((k) => k + 1);
+          }
+        }
       } else if (key.return) {
         // Enter 键不在此全局处理，避免与 PromptInput 的回车提交冲突
-        // 用户可用 [t] 键切换最新思考块
+        // 用户可用 Alt+数字键 切换指定思考块
         return;
       }
     },
@@ -569,7 +581,7 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
       ) : null}
       {verboseMode && !busy && view === "chat" && thinking.thinkingCount > 0 ? (
         <Box>
-          <Text dimColor>{`  [e]展开全部 · [c]折叠全部 · [t]切换最新思考  (${thinking.thinkingCount}条思考)`}</Text>
+          <Text dimColor>{`  [e]全部展开 · [c]全部折叠 · [t]切换最新 · [Alt+N]切换指定  (${thinking.thinkingCount}条思考)`}</Text>
         </Box>
       ) : null}
       {view === "session-list" ? (

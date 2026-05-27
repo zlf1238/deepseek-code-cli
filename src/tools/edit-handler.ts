@@ -29,7 +29,7 @@ type LineIndex = {
   lineStarts: number[];
 };
 
-type SearchScope = {
+export type SearchScope = {
   filePath: string;
   startOffset: number;
   endOffset: number;
@@ -38,7 +38,7 @@ type SearchScope = {
   snippetId: string | null;
 };
 
-type MatchOccurrence = {
+export type MatchOccurrence = {
   startOffset: number;
   endOffset: number;
   startLine: number;
@@ -407,32 +407,60 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function findOccurrences(raw: string, needle: string, scope: SearchScope): MatchOccurrence[] {
+export function findOccurrences(raw: string, needle: string, scope: SearchScope): MatchOccurrence[] {
   if (!raw || !needle) {
     return [];
   }
 
   const scopeText = raw.slice(scope.startOffset, scope.endOffset);
+  // 去除 \r 以兼容 CRLF 行尾文件（\r\n 与 \n 的差异）
+  const cleanScope = scopeText.replace(/\r/g, "");
+  const cleanNeedle = needle.replace(/\r/g, "");
+
   const matches: MatchOccurrence[] = [];
   let searchIndex = 0;
 
   while (true) {
-    const found = scopeText.indexOf(needle, searchIndex);
+    const found = cleanScope.indexOf(cleanNeedle, searchIndex);
     if (found === -1) {
       break;
     }
-    const startOffset = scope.startOffset + found;
-    const endOffset = startOffset + needle.length;
+
+    // 将归一化文本中的位置映射回原始文本中的偏移
+    const rawStartInScope = crlfOffsetToRaw(scopeText, found);
+    const rawEndInScope = crlfOffsetToRaw(scopeText, found + cleanNeedle.length);
+
+    const startOffset = scope.startOffset + rawStartInScope;
+    const endOffset = scope.startOffset + rawEndInScope;
+
     matches.push({
       startOffset,
       endOffset,
       startLine: offsetToLine(raw, startOffset),
       endLine: offsetToLine(raw, Math.max(startOffset, endOffset - 1))
     });
-    searchIndex = found + needle.length;
+
+    searchIndex = found + cleanNeedle.length;
   }
 
   return matches;
+}
+
+/**
+ * 将已去除 \r 的归一化文本位置映射回原始文本位置。
+ * 原始文本中每个 \r 字符在归一化后消失，导致偏移不同。
+ * 例如: "a\r\nb" 归一化为 "a\nb"，归一化位置 1 → 原始位置 2
+ */
+function crlfOffsetToRaw(raw: string, normalizedPos: number): number {
+  let rawPos = 0;
+  let normPos = 0;
+  while (normPos < normalizedPos && rawPos < raw.length) {
+    if (raw[rawPos] !== "\r") {
+      normPos++;
+    }
+    rawPos++;
+  }
+  return rawPos;
 }
 
 function findLooseEscapeMatches(raw: string, needle: string, scope: SearchScope): LooseEscapeMatch[] {
