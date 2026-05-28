@@ -41,15 +41,6 @@ export type AutoSwitchConfig = {
   cacheHitRate?: number;
 };
 
-export type RTKSettings = {
-  /** 是否启用 RTK 输出压缩（默认 false） */
-  enabled?: boolean;
-  /** RTK 二进制路径（默认 "rtk"） */
-  binaryPath?: string;
-  /** 跳过 RTK 包装的命令前缀列表（追加到内置默认列表之上） */
-  exclude?: string[];
-};
-
 /** 模型使用模式：pro = 仅用 Pro，flash = 仅用 Flash，auto = 双向自动切换。 */
 export type ModelMode = "pro" | "flash" | "auto";
 
@@ -75,7 +66,6 @@ export type DeepcodingSettings = {
   webSearchTool?: string;
   pricing?: PricingConfig;
   autoSwitch?: AutoSwitchConfig;
-  rtk?: RTKSettings;
   gitnexus?: GitnexusConfig;
 };
 

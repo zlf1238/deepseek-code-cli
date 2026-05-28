@@ -1,12 +1,10 @@
 import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
-import { loadRTKConfig, wrapGrepArgs } from "./rtk";
 import { spillToolOutput, type ToolOutputHandle } from "./state";
 
 const MAX_OUTPUT_CHARS = 30000;
 const MAX_CAPTURE_CHARS = 10 * 1024 * 1024;
-const DEFAULT_EXCLUDE_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".nuxt"];
 
 /** 匹配超过此数量时启用 handle 化：返回预览 + handle 引用 */
 const GREP_HANDLE_THRESHOLD = 100;
@@ -37,27 +35,30 @@ function buildGrepArgs(
   dir: string,
   include: string | undefined,
   context: number,
-  ignoreCase: boolean
+  ignoreCase: boolean,
+  filesWithMatches: boolean
 ): string[] {
-  const args: string[] = ["-rnH", "--color=never"];
+  // rg 默认递归、管道无色，只需 -n (行号) + --no-heading (兼容 grep 格式)
+  const args: string[] = ["-n", "--no-heading"];
+
+  if (filesWithMatches) {
+    args.push("-l");  // 只输出文件名，不需要上下文
+  } else {
+    args.push("-C", String(context));
+  }
 
   if (ignoreCase) {
     args.push("-i");
   }
 
-  args.push("-C", String(context));
-
   if (include && include.trim()) {
     for (const inc of include.split(",").map((s) => s.trim()).filter(Boolean)) {
-      args.push("--include", inc);
+      args.push("-g", inc);  // rg 使用 -g (glob) 而非 --include
     }
   }
 
-  for (const excludeDir of DEFAULT_EXCLUDE_DIRS) {
-    args.push("--exclude-dir", excludeDir);
-  }
-
-  args.push(pattern, dir);
+  // -- 防止 pattern 含 - 被误解析为参数
+  args.push("--", pattern, dir);
   return args;
 }
 
@@ -185,7 +186,7 @@ interface GrepResult {
   exitCode: number | null;
 }
 
-/** Run grep (or rtk-wrapped grep) and return stdout/stderr/exitCode. */
+/** Run grep and return stdout/stderr/exitCode. */
 async function runGrep(
   command: string,
   args: string[],
@@ -244,6 +245,8 @@ export async function handleGrepTool(
   const include = typeof args.include === "string" ? args.include : undefined;
   const contextLines = typeof args.context === "number" && args.context >= 0 ? args.context : 2;
   const ignoreCase = typeof args.ignoreCase === "boolean" ? args.ignoreCase : false;
+  const outputMode = typeof args.outputMode === "string" ? args.outputMode : "content";
+  const filesWithMatches = outputMode === "files_with_matches";
 
   const dir = resolveSearchDir(context.projectRoot, searchPath);
 
@@ -252,47 +255,32 @@ export async function handleGrepTool(
     includePattern = args.include.trim();
   }
 
-  const grepArgs = buildGrepArgs(pattern, dir, includePattern, contextLines, ignoreCase);
+  const grepArgs = buildGrepArgs(pattern, dir, includePattern, contextLines, ignoreCase, filesWithMatches);
 
-  const rtkConfig = loadRTKConfig();
-  const { command: spawnCmd, args: spawnArgs } = wrapGrepArgs(grepArgs, rtkConfig);
-
-  const result = await runGrep(spawnCmd, spawnArgs, context.projectRoot);
+  let result = await runGrep("rg", grepArgs, context.projectRoot);
+  if (result.exitCode === null) {
+    return {
+      ok: false,
+      name: "grep",
+      error: "ripgrep (rg) 未安装。请安装：winget install BurntSushi.ripgrep (Windows) 或 brew install ripgrep (macOS) 或 apt install ripgrep (Linux)。"
+    };
+  }
   let stdout = result.stdout;
   let stderr = result.stderr;
   let exitCode = result.exitCode;
 
-  // grep returns exit code 1 when no matches found - that's not an error
+  // rg/grep exit code 1 = no matches - not an error
   if (exitCode !== null && exitCode !== 0 && exitCode !== 1) {
     return {
       ok: false,
       name: "grep",
-      error: stderr || `grep failed with exit code ${exitCode}.`,
+      error: stderr || `search failed with exit code ${exitCode}.`,
       metadata: { exitCode }
     };
   }
 
   let matches = parseGrepOutput(stdout, contextLines);
 
-  // rtk may silently return empty results. Fall back to bare grep.
-  const usedRTK = rtkConfig.enabled && spawnCmd !== "grep";
-  if (matches.length === 0 && usedRTK && exitCode !== null && exitCode <= 1) {
-    const fallback = await runGrep("grep", grepArgs, context.projectRoot);
-    if (fallback.exitCode !== null && fallback.exitCode <= 1) {
-      stdout = fallback.stdout;
-      stderr = fallback.stderr;
-      exitCode = fallback.exitCode;
-      matches = parseGrepOutput(fallback.stdout, contextLines);
-    }
-    if (matches.length === 0 && fallback.stderr) {
-      return {
-        ok: false,
-        name: "grep",
-        error: "grep failed (rtk returned empty, bare grep also failed): " + fallback.stderr,
-        metadata: { exitCode: fallback.exitCode }
-      };
-    }
-  }
 
   const formatted = formatGrepResult(matches);
 

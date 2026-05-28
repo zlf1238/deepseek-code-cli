@@ -1,0 +1,65 @@
+我共有以下 4 个用于查找和查看文件的工具：
+
+1. search_content — 全文内容搜索（最常用）
+底层：基于 ripgrep，即时代码搜索
+用途：在项目所有文件的内容中搜索关键词、函数名、字符串等
+特色：支持正则、上下文行预览、文件类型过滤、大小写控制
+javascript
+复制
+插入
+新建文件
+保存
+应用
+// 示例：搜索函数调用，带前后5行上下文
+searchContent("getAcoustoOptic", { contextAround: 5 })
+2. search_file — 按文件名搜索
+用途：按文件名或文件路径模式模糊匹配
+支持通配符：*.vue、*navbar*、api/**/*.ts
+支持递归：可控制是否搜索子目录
+javascript
+复制
+插入
+新建文件
+保存
+应用
+// 示例：查找所有 Vue 组件
+searchFile({ pattern: "*.vue", recursive: true })
+
+// 示例：查找 navbar 相关的文件
+searchFile({ pattern: "*navbar*", recursive: true })
+3. read_file — 读取文件内容
+用途：打开并读取一个已知路径的文件的全部或部分内容
+特色：支持 offset（起始行）和 limit（读取行数），适合大文件只读关键部分
+也支持图片：可以读取 jpg/png/gif/webp 等图片文件
+javascript
+复制
+插入
+新建文件
+保存
+应用
+// 示例：读取文件全部内容
+readFile({ filePath: "d:/path/to/file.ts" })
+
+// 示例：只读取第 10-20 行
+readFile({ filePath: "d:/path/to/file.ts", offset: 10, limit: 10 })
+4. list_dir — 列出目录内容
+用途：查看某个目录下有哪些文件和子目录
+特色：可配置忽略模式，自动隐藏点文件（dot-files）
+javascript
+复制
+插入
+新建文件
+保存
+应用
+// 示例：查看 src/api 目录结构
+listDir({ targetDirectory: "d:/Java/IdeaProjects/hxplatformviewyuanyang/src/api" })
+
+// 示例：列出 src 目录，忽略所有 .png 文件
+listDir({ targetDirectory: "d:/path/to/src", ignorePatterns: ["*.png"] })
+总结对比
+工具	搜什么	最快适用场景
+search_content	文件内容中的关键字	搜函数名、API路径、变量引用等
+search_file	文件名/路径	找某个类型的文件或名字模糊的文件
+read_file	读取已知文件的具体内容	已经知道文件路径，想看代码细节
+list_dir	目录下的文件列表	了解项目结构分布
+这四个工具组合使用，可以覆盖从"模糊查找"到"精确定位"再到"查看具体代码"的完整链路。刚才查 /broadcast/navbar/getAcoustoOptic 参数时，我用的就是 search_content（搜函数名）+ read_file（看具体代码）的组合。

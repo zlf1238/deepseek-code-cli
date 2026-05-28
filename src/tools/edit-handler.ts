@@ -837,9 +837,23 @@ function escapeRegExp(value: string): string {
 
 function normalizeLooseText(value: string): string {
   return value
+    .normalize("NFKC")
     .replace(/\r\n?/g, "\n")
+    // 每行去尾部空格（AI 常引入不可见尾随空格）
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    // 智能单引号 → ASCII
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    // 智能双引号 → ASCII
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    // 各种破折号 → ASCII 连字符
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, "-")
+    // 特殊空格 → 普通空格
+    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, " ")
+    // 去除引号/反斜杠前的多余转义反斜杠（AI 常对引号过度转义）
+    // 放在 Unicode 规范化之后，避免干扰 Unicode 字符
     .replace(/\\+(?=["'`\\])/g, "")
-    .replace(/[ \t]+/g, " ")
     .trim();
 }
 

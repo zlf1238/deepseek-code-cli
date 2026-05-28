@@ -72,15 +72,12 @@ export function MessageView({
       // 已折叠：显示摘要行
       if (!isExpanded) {
         const tokens = estimateTokens(reasoningContent);
-        const indexLabel = totalThinkingCount && totalThinkingCount > 1
-          ? ` (${thinkingIndex}/${totalThinkingCount})`
-          : "";
         return (
           <Box flexDirection="column" marginY={0}>
             <Text dimColor italic>
               {thinkingIndex
-                ? `  ▸ [${thinkingIndex}] 思考过程${indexLabel} (${tokens} tokens) [Alt+${thinkingIndex} 展开]`
-                : `  ▸ 思考过程${indexLabel} (${tokens} tokens)`}
+                ? `  ▸ [${thinkingIndex}] 思考过程 (${tokens} tokens) [Alt+${thinkingIndex} 展开]`
+                : `  ▸ 思考过程 (${tokens} tokens)`}
             </Text>
           </Box>
         );

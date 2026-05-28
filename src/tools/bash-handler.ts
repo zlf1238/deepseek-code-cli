@@ -1,6 +1,5 @@
 import { spawn } from "child_process";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
-import { loadRTKConfig, wrapWithRTK } from "./rtk";
 
 const MAX_OUTPUT_CHARS = 30000;
 const MAX_CAPTURE_CHARS = 10 * 1024 * 1024;
@@ -29,9 +28,7 @@ export async function handleBashTool(
   }
 
   const startCwd = getSessionCwd(context.sessionId, context.projectRoot);
-  const rtkConfig = loadRTKConfig();
-  const rtkWrappedCommand = wrapWithRTK(command, rtkConfig);
-  const { shellPath, shellArgs, marker } = buildShellCommand(rtkWrappedCommand);
+  const { shellPath, shellArgs, marker } = buildShellCommand(command);
 
   const execution = await executeShellCommand(shellPath, shellArgs, startCwd, command, context);
   const result = buildToolCommandResult(
@@ -64,15 +61,37 @@ function updateSessionCwd(sessionId: string, fallback: string, cwd: string | nul
   sessionWorkingDirs.set(sessionId, nextCwd);
 }
 
+type ShellType = "bash" | "zsh" | "cmd" | "unknown";
+
+/** 根据 shell 路径判断 shell 类型 */
+function detectShellType(shellPath: string): ShellType {
+  if (/[/\\]bash$/.test(shellPath)) return "bash";
+  if (/[/\\]zsh$/.test(shellPath)) return "zsh";
+  if (/cmd\.exe$/i.test(shellPath)) return "cmd";
+  return "unknown";
+}
+
 function buildShellCommand(command: string): {
   shellPath: string;
   shellArgs: string[];
   marker: string;
 } {
   const shellPath = resolveShellPath();
+  const shellType = detectShellType(shellPath);
   const marker = buildMarker();
+
+  // cmd.exe: 用 & 串联，无需 rc 初始化，无需 /dev/null 重定向
+  if (shellType === "cmd") {
+    const wrappedCommand = [
+      command,
+      `echo ${marker}%CD%`
+    ].join(" & ");
+    return { shellPath, shellArgs: ["/c", wrappedCommand], marker };
+  }
+
+  // bash / zsh / unknown (POSIX shell)
   const initCommand = buildShellInitCommand(shellPath);
-  const wrappedParts = [];
+  const wrappedParts: string[] = [];
   if (initCommand) {
     wrappedParts.push(initCommand);
   }
@@ -83,8 +102,7 @@ function buildShellCommand(command: string): {
     "exit $__DEEPCODE_STATUS__"
   );
   const wrappedCommand = `{ ${wrappedParts.join("; ")}; } < /dev/null`;
-  return { shellPath, shellArgs: ["-c", wrappedCommand], marker };
-}
+  return { shellPath, shellArgs: ["-c", wrappedCommand], marker };}
 
 async function executeShellCommand(
   shellPath: string,
@@ -146,21 +164,27 @@ function appendChunk(existing: string, chunk: string | Buffer): string {
 }
 
 function resolveShellPath(): string {
+  // 优先使用 SHELL 环境变量（Git Bash / WSL 场景）
   const envShell = process.env.SHELL;
-  if (envShell && /\/(bash|zsh)$/.test(envShell)) {
+  if (envShell && /[/\\](bash|zsh)$/.test(envShell)) {
     return envShell;
   }
+  // Windows：回退 COMSPEC（cmd.exe）
+  if (process.platform === "win32") {
+    return process.env.COMSPEC || "cmd.exe";
+  }
+  // Linux / macOS：回退 /bin/bash
   return "/bin/bash";
 }
 
 function buildShellInitCommand(shellPath: string): string | null {
-  if (/\/zsh$/.test(shellPath)) {
+  if (/[/\\]zsh$/.test(shellPath)) {
     return [
       'ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"',
       'if [ -f "$ZSHRC" ]; then . "$ZSHRC"; fi'
     ].join("; ");
   }
-  if (/\/bash$/.test(shellPath)) {
+  if (/[/\\]bash$/.test(shellPath)) {
     return [
       'BASHRC="${BASH_ENV:-$HOME/.bashrc}"',
       'if [ -f "$BASHRC" ]; then . "$BASHRC"; fi'

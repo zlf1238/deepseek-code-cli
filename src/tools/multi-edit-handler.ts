@@ -46,121 +46,125 @@ export async function handleMultiEditTool(
     });
   }
 
-  const results: Array<{ file_path: string; ok: boolean; replaced: number; error?: string }> = [];
+  // ── 第一阶段：按文件分组，每个文件只读取一次 ────────────────
+  type FileGroup = {
+    absPath: string;
+    metadata: FileReadMetadata;
+    edits: EditOperation[];
+  };
+
+  const fileGroups = new Map<string, FileGroup>();
 
   for (const edit of edits) {
-    try {
-      const absPath = normalizeFilePath(edit.file_path);
-      if (!path.isAbsolute(absPath)) {
-        results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "file_path must be absolute" });
-        continue;
-      }
+    const absPath = normalizeFilePath(edit.file_path);
+    if (!path.isAbsolute(absPath)) {
+      continue;
+    }
 
-      // 使用 file-utils 读取（自动检测编码+换行符）
-      let metadata: FileReadMetadata;
+    if (!fileGroups.has(absPath)) {
       try {
-        metadata = readTextFileWithMetadata(absPath);
+        const metadata = readTextFileWithMetadata(absPath);
+        fileGroups.set(absPath, { absPath, metadata, edits: [] });
       } catch {
+        fileGroups.set(absPath, {
+          absPath,
+          metadata: { content: "", encoding: "utf8", lineEndings: "LF", timestamp: 0 },
+          edits: [],
+        });
+      }
+    }
+    fileGroups.get(absPath)!.edits.push(edit);
+  }
+
+  // ── 第二阶段：每个文件在内存中顺序应用所有编辑，全部通过后一次性写回 ──
+  const results: Array<{ file_path: string; ok: boolean; replaced: number; error?: string }> = [];
+
+  for (const [absPath, group] of fileGroups) {
+    const { metadata, edits: fileEdits } = group;
+
+    if (!metadata.content && fileEdits.length > 0) {
+      for (const edit of fileEdits) {
         results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "File not found" });
+      }
+      continue;
+    }
+
+    let content = metadata.content;
+    let fileOk = true;
+
+    for (const edit of fileEdits) {
+      if (!path.isAbsolute(normalizeFilePath(edit.file_path))) {
+        results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "file_path must be absolute" });
+        fileOk = false;
         continue;
       }
 
-      const content = metadata.content;
+      try {
+        if (edit.replace_all) {
+          const expected = edit.expected_occurrences;
+          let exactCount = countOccurrences(content, edit.old_string);
 
-      if (edit.replace_all) {
-        const expected = edit.expected_occurrences;
-
-        // 先尝试精确匹配计数
-        let exactCount = countOccurrences(content, edit.old_string);
-
-        // 如果精确匹配为 0，尝试 CRLF 归一化匹配（兼容 \r 差异）
-        if (exactCount === 0) {
-          const matches = findMatchesInContent(content, edit.old_string, absPath);
-          if (matches.length > 0) {
-            exactCount = matches.length;
-            // 用 findOccurrences 找到的匹配进行替换
-            if (expected !== undefined && exactCount !== expected) {
-              results.push({
-                file_path: edit.file_path, ok: false, replaced: 0,
-                error: `Expected ${expected} occurrences, found ${exactCount}`,
-              });
+          if (exactCount === 0) {
+            const matches = findMatchesInContent(content, edit.old_string, absPath);
+            if (matches.length > 0) {
+              exactCount = matches.length;
+              if (expected !== undefined && exactCount !== expected) {
+                results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: `Expected ${expected} occurrences, found ${exactCount}` });
+                fileOk = false;
+                continue;
+              }
+              content = applyReplacements(content, matches, edit.new_string);
+              results.push({ file_path: edit.file_path, ok: true, replaced: exactCount });
               continue;
             }
-            const newContent = applyReplacements(content, matches, edit.new_string);
-            writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
-            recordFileState(context.sessionId, {
-              filePath: absPath,
-              content: newContent,
-              timestamp: Date.now(),
-              encoding: metadata.encoding,
-              lineEndings: metadata.lineEndings,
-            });
-            results.push({ file_path: edit.file_path, ok: true, replaced: exactCount });
+          }
+
+          if (expected !== undefined && exactCount !== expected) {
+            results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: `Expected ${expected} occurrences, found ${exactCount}` });
+            fileOk = false;
             continue;
           }
-        }
 
-        if (expected !== undefined && exactCount !== expected) {
-          results.push({
-            file_path: edit.file_path, ok: false, replaced: 0,
-            error: `Expected ${expected} occurrences, found ${exactCount}`,
-          });
-          continue;
-        }
+          if (exactCount === 0) {
+            results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "old_string not found" });
+            fileOk = false;
+            continue;
+          }
 
-        if (exactCount === 0) {
-          results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "old_string not found" });
-          continue;
-        }
-
-        const newContent = content.split(edit.old_string).join(edit.new_string);
-        writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
-        recordFileState(context.sessionId, {
-          filePath: absPath,
-          content: newContent,
-          timestamp: Date.now(),
-          encoding: metadata.encoding,
-          lineEndings: metadata.lineEndings,
-        });
-        results.push({ file_path: edit.file_path, ok: true, replaced: exactCount });
-      } else {
-        // 单次替换：优先精确匹配，失败后降级到 CRLF 归一化匹配
-        const index = content.indexOf(edit.old_string);
-        if (index !== -1) {
-          const newContent = content.slice(0, index) + edit.new_string + content.slice(index + edit.old_string.length);
-          writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
-          recordFileState(context.sessionId, {
-            filePath: absPath,
-            content: newContent,
-            timestamp: Date.now(),
-            encoding: metadata.encoding,
-            lineEndings: metadata.lineEndings,
-          });
-          results.push({ file_path: edit.file_path, ok: true, replaced: 1 });
+          content = content.split(edit.old_string).join(edit.new_string);
+          results.push({ file_path: edit.file_path, ok: true, replaced: exactCount });
         } else {
-          // CRLF 归一化匹配降级
-          const matches = findMatchesInContent(content, edit.old_string, absPath);
-          if (matches.length > 0) {
-            const match = matches[0];
-            const newContent = content.slice(0, match.startOffset) +
-              edit.new_string +
-              content.slice(match.endOffset);
-            writeTextFile(absPath, newContent, metadata.encoding, metadata.lineEndings);
-            recordFileState(context.sessionId, {
-              filePath: absPath,
-              content: newContent,
-              timestamp: Date.now(),
-              encoding: metadata.encoding,
-              lineEndings: metadata.lineEndings,
-            });
+          const index = content.indexOf(edit.old_string);
+          if (index !== -1) {
+            content = content.slice(0, index) + edit.new_string + content.slice(index + edit.old_string.length);
             results.push({ file_path: edit.file_path, ok: true, replaced: 1 });
           } else {
-            results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "old_string not found" });
+            const matches = findMatchesInContent(content, edit.old_string, absPath);
+            if (matches.length > 0) {
+              const match = matches[0];
+              content = content.slice(0, match.startOffset) + edit.new_string + content.slice(match.endOffset);
+              results.push({ file_path: edit.file_path, ok: true, replaced: 1 });
+            } else {
+              results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: "old_string not found" });
+              fileOk = false;
+            }
           }
         }
+      } catch (err) {
+        results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: String(err) });
+        fileOk = false;
       }
-    } catch (err) {
-      results.push({ file_path: edit.file_path, ok: false, replaced: 0, error: String(err) });
+    }
+
+    if (fileOk) {
+      writeTextFile(absPath, content, metadata.encoding, metadata.lineEndings);
+      recordFileState(context.sessionId, {
+        filePath: absPath,
+        content,
+        timestamp: Date.now(),
+        encoding: metadata.encoding,
+        lineEndings: metadata.lineEndings,
+      });
     }
   }
 
@@ -177,9 +181,6 @@ export async function handleMultiEditTool(
   };
 }
 
-/**
- * 在文件内容中查找所有匹配项，使用 CRLF 归一化匹配。
- */
 function findMatchesInContent(content: string, needle: string, filePath: string): MatchOccurrence[] {
   const lines = content.split("\n");
   const scope: SearchScope = {
@@ -193,11 +194,7 @@ function findMatchesInContent(content: string, needle: string, filePath: string)
   return findOccurrences(content, needle, scope);
 }
 
-/**
- * 按匹配结果从后向前替换（避免偏移错乱）。
- */
 function applyReplacements(raw: string, matches: MatchOccurrence[], replacement: string): string {
-  // 从后向前替换，避免破坏后续匹配的偏移
   const sorted = [...matches].sort((a, b) => b.startOffset - a.startOffset);
   let result = raw;
   for (const match of sorted) {

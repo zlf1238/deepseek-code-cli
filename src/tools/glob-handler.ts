@@ -1,10 +1,8 @@
 import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult } from "./executor";
-import { loadRTKConfig, wrapFindArgs } from "./rtk";
 
 const MAX_OUTPUT_CHARS = 30000;
-const DEFAULT_EXCLUDE_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".nuxt"];
 
 function resolveSearchDir(root: string, targetPath: string | undefined): string {
   if (!targetPath || !targetPath.trim()) {
@@ -15,47 +13,6 @@ function resolveSearchDir(root: string, targetPath: string | undefined): string 
     return root;
   }
   return resolved;
-}
-
-function buildFindArgs(pattern: string, dir: string): string[] {
-  const args: string[] = [dir];
-
-  const parts = pattern.split("/").filter(Boolean);
-  const fileName = parts[parts.length - 1];
-
-  // Build path prune expressions for excluded dirs
-  const pruneExprs: string[] = [];
-  for (const excludeDir of DEFAULT_EXCLUDE_DIRS) {
-    pruneExprs.push("-path", `*/${excludeDir}/*`);
-  }
-
-  if (pruneExprs.length > 0) {
-    args.push("(");
-    for (let i = 0; i < pruneExprs.length; i += 2) {
-      if (i > 0) {
-        args.push("-o");
-      }
-      args.push(pruneExprs[i], pruneExprs[i + 1]);
-    }
-    args.push(")", "-prune", "-o");
-  }
-
-  // Depth: if pattern has no slash (just "*.ts"), limit to current dir by default
-  // But the user can pass "**/*.ts" for recursive
-  if (parts.length === 1 && !pattern.startsWith("**")) {
-    args.push("-maxdepth", "1");
-  }
-
-  // Match by name
-  args.push("-name", fileName);
-
-  // Only files
-  args.push("-type", "f");
-
-  // Print the path
-  args.push("-print");
-
-  return args;
 }
 
 function formatFileList(files: string[]): string {
@@ -80,17 +37,14 @@ export async function handleGlobTool(
 
   const searchPath = typeof args.path === "string" ? args.path : undefined;
   const dir = resolveSearchDir(context.projectRoot, searchPath);
-  const findArgs = buildFindArgs(pattern, dir);
 
-  const rtkConfig = loadRTKConfig();
-  const { command: spawnCmd, args: spawnArgs } = wrapFindArgs(findArgs, rtkConfig);
-
-  const { stdout, stderr, exitCode } = await new Promise<{
+  // 辅助函数：spawn 进程并捕获输出
+  const doSpawn = (cmd: string, args: string[]) => new Promise<{
     stdout: string;
     stderr: string;
     exitCode: number | null;
   }>((resolve) => {
-    const child = spawn(spawnCmd, spawnArgs, {
+    const child = spawn(cmd, args, {
       cwd: context.projectRoot,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"]
@@ -124,11 +78,20 @@ export async function handleGlobTool(
     });
   });
 
+  let { stdout, stderr, exitCode } = await doSpawn("rg", ["--files", "-g", pattern, dir]);
+  if (exitCode === null) {
+    return {
+      ok: false,
+      name: "glob",
+      error: "ripgrep (rg) 未安装。请安装：winget install BurntSushi.ripgrep (Windows) 或 brew install ripgrep (macOS) 或 apt install ripgrep (Linux)。"
+    };
+  }
+
   if (exitCode !== null && exitCode !== 0) {
     return {
       ok: false,
       name: "glob",
-      error: stderr || `find failed with exit code ${exitCode}.`,
+      error: stderr || `search failed with exit code ${exitCode}.`,
       metadata: { exitCode }
     };
   }

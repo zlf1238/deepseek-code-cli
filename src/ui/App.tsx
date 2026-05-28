@@ -153,33 +153,40 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
   const thinking = useThinkingExpanded(messages);
   const [thinkingRenderKey, setThinkingRenderKey] = useState(0);
 
-  // Keyboard shortcuts for collapsible thinking blocks
+  // 思考块快捷键
   // NOTE: clearTerminal() is required before each toggle because
   // setThinkingRenderKey changes <Static>'s key, which causes Ink to
   // re-mount Static and re-render all items. Without clearing first,
   // old terminal output from the previous Static instance persists,
   // resulting in duplicated messages on screen.
+  // 批量操作（全部展开/折叠、切换最新）——生成内容时禁用
   useInput(
     (input, key) => {
-      if (input === "e") {
+      if (key.meta && input === "e") {
         clearTerminal();
         thinking.expandAll();
         setThinkingRenderKey((k) => k + 1);
-      } else if (input === "c") {
+      } else if (key.meta && input === "c") {
         clearTerminal();
         thinking.collapseAll();
         setThinkingRenderKey((k) => k + 1);
-      } else if (input === "t") {
-        // Toggle the latest thinking block
+      } else if (key.meta && input === "t") {
         if (thinking.latestThinkingId) {
           clearTerminal();
           thinking.toggle(thinking.latestThinkingId);
           setThinkingRenderKey((k) => k + 1);
         }
-      } else if (key.meta && /^[1-9]$/.test(input)) {
-        // Alt+数字键：切换指定编号的思考块
+      }
+    },
+    { isActive: verboseMode && !busy && view === "chat" }
+  );
+
+  // Alt+数字键：切换指定编号的思考块——生成内容时也可用
+  useInput(
+    (input, key) => {
+      if (key.meta && /^[1-9]$/.test(input)) {
         const displayIndex = parseInt(input, 10);
-        const arrayIndex = thinking.thinkingIds.length - displayIndex;
+        const arrayIndex = displayIndex - 1;
         if (arrayIndex >= 0 && arrayIndex < thinking.thinkingIds.length) {
           const id = thinking.thinkingIds[arrayIndex];
           if (id) {
@@ -188,13 +195,9 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
             setThinkingRenderKey((k) => k + 1);
           }
         }
-      } else if (key.return) {
-        // Enter 键不在此全局处理，避免与 PromptInput 的回车提交冲突
-        // 用户可用 Alt+数字键 切换指定思考块
-        return;
       }
     },
-    { isActive: verboseMode && !busy && view === "chat" }
+    { isActive: verboseMode && view === "chat" }
   );
 
   // 全局快捷键：Ctrl+H / ? 切换帮助面板（在任何视图下可用）
@@ -550,14 +553,34 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
             if (verboseMode && message.role === "assistant" && message.meta?.asThinking) {
               thinkingTotal = thinking.thinkingCount;
               const idx = thinking.thinkingIds.indexOf(message.id);
-              if (idx !== -1) thinkingIdx = thinkingTotal - idx; // 倒序（最新为 1）
+              if (idx !== -1) thinkingIdx = idx + 1; // 正序（最旧为 1）
+            }
+            // 判断是否为最新一条含 reasoning 的 assistant 消息
+            let isLatestReasoning = false;
+            const hasReasoning = (m: SessionMessage): boolean => {
+              const params = m.messageParams as { reasoning_content?: string } | null | undefined;
+              return !!params && typeof params.reasoning_content === "string" && params.reasoning_content.trim().length > 0;
+            };
+            if (
+              !message.meta?.asThinking &&
+              message.role === "assistant" &&
+              hasReasoning(message)
+            ) {
+              // 从后往前找，找到含 reasoning 的最新 assistant 消息
+              for (let i = displayMessages.length - 1; i >= 0; i--) {
+                const m = displayMessages[i];
+                if (m.role === "assistant" && !m.meta?.asThinking && hasReasoning(m)) {
+                  isLatestReasoning = m.id === message.id;
+                  break;
+                }
+              }
             }
             return (
               <MessageView
                 key={message.id}
                 message={message}
                 verboseMode={verboseMode}
-                isExpanded={thinking.isExpanded(message.id)}
+                isExpanded={message.meta?.asThinking ? thinking.isExpanded(message.id) : isLatestReasoning}
                 onToggle={() => {
                   thinking.toggle(message.id);
                   setThinkingRenderKey((k) => k + 1);
@@ -581,7 +604,7 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
       ) : null}
       {verboseMode && !busy && view === "chat" && thinking.thinkingCount > 0 ? (
         <Box>
-          <Text dimColor>{`  [e]全部展开 · [c]全部折叠 · [t]切换最新 · [Alt+N]切换指定  (${thinking.thinkingCount}条思考)`}</Text>
+          <Text dimColor>{`  [Alt+e]全部展开 · [Alt+c]全部折叠 · [Alt+t]切换最新 · [Alt+N]切换指定  (${thinking.thinkingCount}条思考)`}</Text>
         </Box>
       ) : null}
       {view === "session-list" ? (
