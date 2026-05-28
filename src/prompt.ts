@@ -321,7 +321,8 @@ function collectAllSkills(projectRoot: string): SkillInfo[] {
 
 function checkToolInstalled(tool: string): boolean {
   try {
-    execSync(`command -v ${tool}`, { encoding: "utf8", stdio: "ignore" });
+    const cmd = process.platform === "win32" ? "where" : "command -v";
+    execSync(`${cmd} ${tool}`, { encoding: "utf8", stdio: "ignore" });
     return true;
   } catch {
     return false;
