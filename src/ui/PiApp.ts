@@ -314,9 +314,16 @@ export class PiApp {
 
     // 直接把所有消息视图加入 root（利用终端原生滚动缓冲区）
     // P2: 工具调用归组（非 verbose 模式下，连续 ≥3 个 tool 消息折叠为一行摘要）
+    const termRows = this.terminal.rows;
+    // 跳转模式（第一条是 skip-hint）：限制消息数使内容不超过一屏，视口自动在顶部
+    const jumpMode = this.messages.length > 0 && this.messages[0].content?.startsWith("↑ 上方有");
+    const maxMsgLines = jumpMode ? Math.max(1, Math.floor((termRows - 6) / 2)) : this.messages.length;
+    let msgCount = 0;
     if (this.verboseMode) {
       for (const msg of this.messages) {
         if (!this.verboseMode && msg.meta?.asThinking) continue;
+        if (msgCount >= maxMsgLines) break;
+        msgCount++;
         this.root.addChild(createMessageView(msg.content, msg.role, this.terminal.columns, msg.meta));
       }
     } else {
@@ -325,6 +332,12 @@ export class PiApp {
         const msg = this.messages[i];
         // 跳过思考过程
         if (msg.meta?.asThinking) { i++; continue; }
+        if (msgCount >= maxMsgLines) {
+          // 添加查看更多提示后退出
+          this.root.addChild(new Text(Theme.dimText("  ↓ 下方还有更多消息，继续对话可滚动查看"), 0, 0));
+          break;
+        }
+        msgCount++;
 
         // 检测连续 tool 消息（有 function/paramsMd 标记）
         if (msg.meta?.function || msg.meta?.paramsMd) {
