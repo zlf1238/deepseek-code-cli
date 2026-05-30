@@ -8,7 +8,6 @@ import { Spacer } from "../tui/components/spacer";
 import type { Container } from "../tui/tui";
 import { Box } from "../tui/components/box";
 import { renderMarkdown } from "./markdown";
-import chalk from "chalk";
 import { Theme, type ColorFn } from "../tui/ThemeAdapter";
 
 /** 消息角色 */
@@ -186,14 +185,9 @@ function truncate(value: string, max: number): string {
 /** Unicode 制表符集合：渲染后的表格行以这些字符开头 */
 const TABLE_LINE_CHARS = new Set(["│", "├", "└", "┌", "┬", "┴", "┼", "┤"]);
 
-/** 根据 statusColor 映射到 chalk 颜色函数 */
-function summaryColorFn(status?: string): ColorFn | undefined {
-  switch (status) {
-    case "green": return (s: string) => chalk.green(s);
-    case "red": return Theme.errorText;
-    case "yellow": return Theme.warnText;
-    default: return undefined;
-  }
+/** 完成摘要统一使用黄色 */
+function summaryColorFn(_status?: string): ColorFn {
+  return Theme.warnText;
 }
 
 /** 剥离 ANSI 转义码（如 chalk.dim 产生的 \x1b[2m） */
