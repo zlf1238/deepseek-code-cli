@@ -200,7 +200,7 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
     { isActive: verboseMode && view === "chat" }
   );
 
-  // 全局快捷键：? 切换帮助面板（在任何视图下可用）
+  // 全局快捷键：Ctrl+H / ? 切换帮助面板（在任何视图下可用）
   useInput(
     (input, key) => {
       if (input === "?" || (key.ctrl && input === "h")) {

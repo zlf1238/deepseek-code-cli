@@ -197,6 +197,8 @@ export interface OverlayHandle {
  */
 export class Container implements Component {
 	children: Component[] = [];
+	/** 最大可见行数。超出此行数的内容将被截断（不进入终端），用于跳转等需要视口在顶部的场景。null 表示不限制。 */
+	maxVisibleLines?: number | null;
 
 	addChild(component: Component): void {
 		this.children.push(component);
@@ -221,10 +223,17 @@ export class Container implements Component {
 
 	render(width: number): string[] {
 		const lines: string[] = [];
+		const maxLines = this.maxVisibleLines;
 		for (const child of this.children) {
+			if (maxLines != null && lines.length >= maxLines) {
+				break;
+			}
 			const childLines = child.render(width);
 			for (const line of childLines) {
 				lines.push(line);
+				if (maxLines != null && lines.length >= maxLines) {
+					break;
+				}
 			}
 		}
 		return lines;
@@ -257,6 +266,8 @@ export class TUI extends Container {
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
 	private stopped = false;
+	/** 如果设置，下一次 fullRender 后视口将定位到该行（用于跳转锚点） */
+	private scrollTarget: number | null = null;
 
 	// Overlay stack for modal components rendered on top of base content
 	private focusOrderCounter = 0;
@@ -291,6 +302,11 @@ export class TUI extends Container {
 			this.terminal.hideCursor();
 		}
 		this.requestRender();
+	}
+
+	/** 设置下一次渲染的视口目标行。用于跳转场景：渲染后视口从指定行开始。 */
+	scrollToLine(line: number): void {
+		this.scrollTarget = line;
 	}
 
 	getClearOnShrink(): boolean {
@@ -990,6 +1006,16 @@ export class TUI extends Container {
 				buffer += newLines[i];
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
+			// 如果设置了 scrollTarget，用 ANSI 序列将物理视口移动到目标位置
+			if (this.scrollTarget !== null) {
+				if (this.scrollTarget === 0 && newLines.length > height) {
+					// Scroll Down: 将内容向下滚动，视口自然上移到顶部
+					const scrollAmount = newLines.length - height;
+					buffer += "\x1b[" + scrollAmount + "T";
+				} else if (this.scrollTarget === 0) {
+					buffer += "\x1b[H";
+				}
+			}
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);
 			this.hardwareCursorRow = this.cursorRow;
@@ -1000,7 +1026,13 @@ export class TUI extends Container {
 				this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 			}
 			const bufferLength = Math.max(height, newLines.length);
-			this.previousViewportTop = Math.max(0, bufferLength - height);
+			// 如果设置了 scrollTarget，视口从指定行开始；否则停在底部
+			if (this.scrollTarget !== null) {
+				this.previousViewportTop = Math.max(0, Math.min(this.scrollTarget, bufferLength - height));
+				this.scrollTarget = null;
+			} else {
+				this.previousViewportTop = Math.max(0, bufferLength - height);
+			}
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);

@@ -30,8 +30,8 @@ export function formatSessionTitle(value: string, max = 70): string {
   return `${cleaned.slice(0, max)}…`;
 }
 
-/** 格式化时间戳 */
-function formatTimestamp(value: string): string {
+/** 格式化时间戳（导出供 PiQuestionList / PiApp 使用） */
+export function formatTimestamp(value: string): string {
   try {
     const date = new Date(value);
     if (Number.isNaN(date.valueOf())) return value;

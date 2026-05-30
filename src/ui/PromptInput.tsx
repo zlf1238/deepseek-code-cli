@@ -450,9 +450,7 @@ export const PromptInput = memo(function PromptInput({
     }
 
     if (input && !key.ctrl && !key.meta) {
-      // 将 \\r 转换为 \\n：当终端未启用 bracketed paste 时，粘贴内容中的换行
-      // 在 raw mode 下以 \\r 形式发送。此处作为兜底，确保多行粘贴不会丢失换行。
-      const sanitized = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const sanitized = input.replace(/\r/g, "");
       updateBuffer((s) => insertText(s, sanitized));
     }
   }, !disabled);
