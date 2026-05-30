@@ -55,7 +55,7 @@ export class PiSessionList implements Component {
 
   constructor(maxVisible: number, termWidth?: number) {
     this.maxVisible = Math.max(3, maxVisible);
-    const maxCol = termWidth ? Math.max(30, Math.floor(termWidth * 0.7)) : 60;
+    const maxCol = termWidth ? Math.max(30, Math.floor(termWidth * 0.9)) : 70;
     this.selectList = new SelectList({
       maxVisible: this.maxVisible,
       layout: { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: maxCol },
@@ -264,7 +264,7 @@ export class PiSessionList implements Component {
       : this.allSessions;
 
     const items: SelectItem[] = filtered.map((s) => {
-      const rawLabel = formatSessionTitle(s.summary || s.id, 50);
+      const rawLabel = formatSessionTitle(s.summary || s.id, 80);
       const rawDesc = `${s.status || "unknown"} · ${formatTimestamp(s.updateTime)}`;
       return {
         value: s.id,
