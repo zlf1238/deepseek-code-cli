@@ -192,6 +192,10 @@ export type MessageMeta = {
   stepDescription?: string;
   /** 标记为工具组消息，用于分类展示工具调用摘要 */
   isToolGroup?: boolean;
+  /** 流式输出开始标记（UI 创建空消息占位，后续通过 isStreamDelta 增量更新） */
+  isStreamStart?: boolean;
+  /** 流式输出增量更新标记（UI 更新最后一条消息的内容而非新增） */
+  isStreamDelta?: boolean;
 };
 
 export type SessionMessage = {
@@ -378,7 +382,9 @@ export class SessionManager {
     client: NonNullable<ReturnType<CreateOpenAIClient>["client"]>,
     request: Record<string, unknown>,
     options?: Record<string, unknown>,
-    sessionId?: string
+    sessionId?: string,
+    /** 流式输出回调：每次收到文本增量时调用，用于实现打字机效果 */
+    onContentDelta?: (delta: string, fullContent: string) => void,
   ): Promise<{
     choices?: Array<{ message?: Record<string, unknown> }>;
     usage?: unknown;
@@ -448,6 +454,8 @@ export class SessionManager {
           if (typeof contentDelta === "string") {
             content += contentDelta;
             trackText(contentDelta);
+            // 打字机效果：每次收到文本增量时通知调用方
+            onContentDelta?.(contentDelta, content);
           }
 
           const reasoningDelta = delta.reasoning_content ?? delta.reasoning;
@@ -899,10 +907,9 @@ The candidate skills are as follows:\n\n`;
         failReason: "OpenAI API key not found",
         updateTime: now
       }));
-      this.onAssistantMessage(
-        this.buildAssistantMessage(sessionId, "OpenAI API key not found. Please configure ~/.deepseek-code/settings.json.", null),
-        false,
-      );
+      const noKeyMsg = this.buildAssistantMessage(sessionId, "OpenAI API key not found. Please configure ~/.deepseek-code/settings.json.", null);
+      this.appendSessionMessage(sessionId, noKeyMsg);
+      this.onAssistantMessage(noKeyMsg, false);
       this.maybeNotifyTaskCompletion(sessionId, notify, startedAt);
       return;
     }
@@ -1013,6 +1020,10 @@ The candidate skills are as follows:\n\n`;
         }
 
         const thinkingOptions = buildThinkingRequestOptions(currentThinkingEnabled, currentBaseURL, currentReasoningEffort);
+
+        // 流式输出状态：用于实现打字机效果
+        let streamMessageId: string | null = null;
+
         const response = await this.createChatCompletionStream(
           currentClient,
           {
@@ -1022,7 +1033,24 @@ The candidate skills are as follows:\n\n`;
             ...thinkingOptions
           },
           { signal: sessionController.signal },
-          sessionId
+          sessionId,
+          // 打字机效果：每次收到文本增量时推送到 UI
+          (delta, fullContent) => {
+            if (!streamMessageId) {
+              // 第一次收到文本：发送流式开始消息
+              streamMessageId = crypto.randomUUID();
+              const startMsg = this.buildAssistantMessage(sessionId, fullContent, null);
+              startMsg.id = streamMessageId;
+              startMsg.meta = { isStreamStart: true };
+              this.onAssistantMessage(startMsg, true);
+            } else {
+              // 后续增量：发送流式更新消息
+              const updateMsg = this.buildAssistantMessage(sessionId, fullContent, null);
+              updateMsg.id = streamMessageId;
+              updateMsg.meta = { isStreamDelta: true };
+              this.onAssistantMessage(updateMsg, true);
+            }
+          },
         );
 
         const message = response.choices?.[0]?.message;
@@ -1059,6 +1087,10 @@ The candidate skills are as follows:\n\n`;
         }
 
         const assistantMessage = this.buildAssistantMessage(sessionId, content, toolCalls, thinking);
+        // 如果之前有流式文本输出，使用相同 id 让 UI 层识别为同一条消息的最终版本
+        if (streamMessageId) {
+          assistantMessage.id = streamMessageId;
+        }
         this.appendSessionMessage(sessionId, assistantMessage);
         this.onAssistantMessage(assistantMessage, true);
 
@@ -1546,6 +1578,11 @@ The candidate skills are as follows:\n\n`;
     this.ensureProjectDir();
     const messagePath = this.getSessionMessagesPath(sessionId);
     fs.appendFileSync(messagePath, `${JSON.stringify(message)}\n`, "utf8");
+  }
+
+  /** 向指定会话追加一条消息（公开方法，供 UI 层持久化摘要等系统消息） */
+  addSessionMessage(sessionId: string, message: SessionMessage): void {
+    this.appendSessionMessage(sessionId, message);
   }
 
   private async appendSessionMessageAsync(sessionId: string, message: SessionMessage): Promise<void> {
@@ -2143,7 +2180,7 @@ The candidate skills are as follows:\n\n`;
     thinkingEnabled: boolean,
   ): ChatCompletionMessageParam[] {
     return messages
-        .filter((message) => !message.compacted && !message.meta?.isStepIndicator)
+        .filter((message) => !message.compacted && !message.meta?.isStepIndicator && !message.meta?.isSummary)
         .map((message) => {
           const base: ChatCompletionMessageParam = {
             role: message.role,
