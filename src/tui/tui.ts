@@ -997,6 +997,13 @@ export class TUI extends Container {
 				buffer += newLines[i];
 			}
 			buffer += "\x1b[?2026l"; // End synchronized output
+			// 如果设置了 scrollTarget，用 ANSI 序列将物理视口移动到目标位置
+			if (this.scrollTarget !== null) {
+				if (this.scrollTarget === 0) {
+					// 光标回家 → 终端自动将视口滚动到顶部使光标可见
+					buffer += "\x1b[H";
+				}
+			}
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);
 			this.hardwareCursorRow = this.cursorRow;
