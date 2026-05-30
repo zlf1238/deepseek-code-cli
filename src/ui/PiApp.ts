@@ -314,9 +314,6 @@ export class PiApp {
 
     // 直接把所有消息视图加入 root（利用终端原生滚动缓冲区）
     // P2: 工具调用归组（非 verbose 模式下，连续 ≥3 个 tool 消息折叠为一行摘要）
-    // 跳转模式（第一条是 skip-hint）：限制容器渲染行数不超过一屏，视口自然在顶部
-    const jumpMode = this.messages.length > 0 && this.messages[0].content?.startsWith("↑ 上方有");
-    this.root.maxVisibleLines = jumpMode ? Math.max(5, this.terminal.rows - 5) : null;
     if (this.verboseMode) {
       for (const msg of this.messages) {
         if (!this.verboseMode && msg.meta?.asThinking) continue;
@@ -687,8 +684,6 @@ export class PiApp {
       if (entry) {
         this.statusLine = buildStatusLine(entry, this.model, this.settings.pricing);
       }
-      // 跳转后视口定位到顶部，让跳转目标（省略提示或第一条消息）可见
-      this.tui.scrollToLine(0);
       this.renderChat();
     };
     this.questionList.onCancel = () => {
