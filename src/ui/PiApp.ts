@@ -684,6 +684,8 @@ export class PiApp {
       if (entry) {
         this.statusLine = buildStatusLine(entry, this.model, this.settings.pricing);
       }
+      // 跳转后视口定位到顶部，让跳转目标（省略提示或第一条消息）可见
+      this.tui.scrollToLine(0);
       this.renderChat();
     };
     this.questionList.onCancel = () => {

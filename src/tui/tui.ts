@@ -257,6 +257,8 @@ export class TUI extends Container {
 	private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
 	private fullRedrawCount = 0;
 	private stopped = false;
+	/** 如果设置，下一次 fullRender 后视口将定位到该行（用于跳转锚点） */
+	private scrollTarget: number | null = null;
 
 	// Overlay stack for modal components rendered on top of base content
 	private focusOrderCounter = 0;
@@ -291,6 +293,11 @@ export class TUI extends Container {
 			this.terminal.hideCursor();
 		}
 		this.requestRender();
+	}
+
+	/** 设置下一次渲染的视口目标行。用于跳转场景：渲染后视口从指定行开始。 */
+	scrollToLine(line: number): void {
+		this.scrollTarget = line;
 	}
 
 	getClearOnShrink(): boolean {
@@ -1000,7 +1007,13 @@ export class TUI extends Container {
 				this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 			}
 			const bufferLength = Math.max(height, newLines.length);
-			this.previousViewportTop = Math.max(0, bufferLength - height);
+			// 如果设置了 scrollTarget，视口从指定行开始；否则停在底部
+			if (this.scrollTarget !== null) {
+				this.previousViewportTop = Math.max(0, Math.min(this.scrollTarget, bufferLength - height));
+				this.scrollTarget = null;
+			} else {
+				this.previousViewportTop = Math.max(0, bufferLength - height);
+			}
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
