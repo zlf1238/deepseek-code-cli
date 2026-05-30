@@ -8,7 +8,8 @@ import { Spacer } from "../tui/components/spacer";
 import type { Container } from "../tui/tui";
 import { Box } from "../tui/components/box";
 import { renderMarkdown } from "./markdown";
-import { Theme } from "../tui/ThemeAdapter";
+import chalk from "chalk";
+import { Theme, type ColorFn } from "../tui/ThemeAdapter";
 
 /** 消息角色 */
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -68,9 +69,10 @@ export function createMessageView(
     return box;
   }
 
-  // ── 摘要消息（带颜色） ──
+  // ── 摘要消息（使用 statusColor 着色） ──
   if (meta?.isSummary) {
-    box.addChild(new Text(content, 0, 0));
+    const colorFn = summaryColorFn(meta.statusColor);
+    box.addChild(new Text(content, 0, 0, colorFn));
     return box;
   }
 
@@ -183,6 +185,16 @@ function truncate(value: string, max: number): string {
 
 /** Unicode 制表符集合：渲染后的表格行以这些字符开头 */
 const TABLE_LINE_CHARS = new Set(["│", "├", "└", "┌", "┬", "┴", "┼", "┤"]);
+
+/** 根据 statusColor 映射到 chalk 颜色函数 */
+function summaryColorFn(status?: string): ColorFn | undefined {
+  switch (status) {
+    case "green": return (s: string) => chalk.green(s);
+    case "red": return Theme.errorText;
+    case "yellow": return Theme.warnText;
+    default: return undefined;
+  }
+}
 
 /** 剥离 ANSI 转义码（如 chalk.dim 产生的 \x1b[2m） */
 const STRIP_ANSI_RE = /\x1b\[[0-9;]*m/g;

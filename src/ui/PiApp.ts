@@ -722,7 +722,10 @@ export class PiApp {
               session, elapsedMs, roundTokens, roundPrompt, roundCompletion,
               roundCacheHit, roundCacheMiss, this.settings.pricing,
             );
-            this.addMessage("system", summaryMsg.content ?? "");
+            this.addMessage("system", summaryMsg.content ?? "", {
+              isSummary: true,
+              statusColor: (summaryMsg.messageParams as { statusColor?: string } | null)?.statusColor,
+            });
             // 持久化摘要到会话文件，避免切换会话后丢失
             this.sessionManager.addSessionMessage(sessionId, summaryMsg);
           }
