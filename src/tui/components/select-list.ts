@@ -177,7 +177,10 @@ export class SelectList implements Component {
 			const maxPrimaryWidth = Math.max(1, effectivePrimaryColumnWidth - PRIMARY_COLUMN_GAP);
 			const truncatedValue = this.truncatePrimary(item, isSelected, maxPrimaryWidth, effectivePrimaryColumnWidth);
 			const truncatedValueWidth = visibleWidth(truncatedValue);
-			const spacing = " ".repeat(Math.max(1, effectivePrimaryColumnWidth - truncatedValueWidth));
+			// 计算描述文本可见宽度，填充空格到行尾实现 description 靠右对齐
+			const descVisibleWidth = visibleWidth(descriptionSingleLine);
+			const paddingEnd = Math.max(1, width - prefixWidth - truncatedValueWidth - descVisibleWidth - 4);
+			const spacing = " ".repeat(paddingEnd);
 			const descriptionStart = prefixWidth + truncatedValueWidth + spacing.length;
 			const remainingWidth = width - descriptionStart - 2; // -2 for safety
 
