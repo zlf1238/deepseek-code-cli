@@ -1925,6 +1925,8 @@ The candidate skills are as follows:\n\n`;
         return `正在搜索内容  ${(firstValue(["pattern"]) || "").slice(0, 60)}`;
       case "WebSearch":
         return `正在搜索网络  ${(firstValue(["query"]) || "").slice(0, 60)}`;
+      case "SkillLoad":
+        return `正在加载 Skill: ${firstValue(["name"]) || "unknown"}`;
       case "AskUserQuestion":
         return `正在向用户提问`;
       default:
