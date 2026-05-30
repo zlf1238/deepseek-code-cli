@@ -999,8 +999,11 @@ export class TUI extends Container {
 			buffer += "\x1b[?2026l"; // End synchronized output
 			// 如果设置了 scrollTarget，用 ANSI 序列将物理视口移动到目标位置
 			if (this.scrollTarget !== null) {
-				if (this.scrollTarget === 0) {
-					// 光标回家 → 终端自动将视口滚动到顶部使光标可见
+				if (this.scrollTarget === 0 && newLines.length > height) {
+					// 将光标上移到内容顶部，终端自动滚动视口使光标可见
+					const scrollAmount = newLines.length - 1;
+					buffer += "\x1b[" + scrollAmount + "A";
+				} else if (this.scrollTarget === 0) {
 					buffer += "\x1b[H";
 				}
 			}
