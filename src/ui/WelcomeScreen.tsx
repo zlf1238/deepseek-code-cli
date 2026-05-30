@@ -17,6 +17,7 @@ type WelcomeScreenProps = {
   skills: SkillInfo[];
   version: string;
   width: number;
+  verboseMode: boolean;
 };
 
 const TITLE_PANEL_WIDTH = 30;
@@ -37,7 +38,8 @@ export function WelcomeScreen({
   settings,
   skills,
   version,
-  width
+  width,
+  verboseMode
 }: WelcomeScreenProps): React.ReactElement {
   const tips = useMemo(() => buildWelcomeTips(skills), [skills]);
   const [tipIndex] = useState(() => randomTipIndex(tips.length));
@@ -52,8 +54,7 @@ export function WelcomeScreen({
   if (tiny) {
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text bold color="cyanBright">DeepSeek Code</Text>
-        <Text dimColor> v{version || "unknown"}</Text>
+        <Text bold color="cyanBright">DeepSeek Code CLI</Text>
         {tip ? (
           <Text dimColor wrap="truncate-end">
             {tip.label} - {tip.description}
@@ -75,9 +76,8 @@ export function WelcomeScreen({
           >
             <Box justifyContent="center" width={compact ? undefined : TITLE_PANEL_WIDTH}>
               <Text bold color="cyanBright">
-                DeepSeek Code
+                DeepSeek Code CLI
               </Text>
-              <Text> (v{version || "unknown"})</Text>
             </Box>
           </Box>
 
@@ -97,11 +97,12 @@ export function WelcomeScreen({
             marginTop={compact ? 1 : 0}
           >
             {!compact ? <Text> </Text> : null}
-            <SettingRow label="model" value={`${settings.model}${settings.mode !== "auto" ? ` (${settings.mode})` : ""}`} />
-            <SettingRow label="thinking enabled" value={String(settings.thinkingEnabled)} />
-            <SettingRow label="reasoning effort" value={settings.reasoningEffort} />
-            <SettingRow label="context window" value={formatTokenCount(contextWindowCapacity)} />
+            <SettingRow label="模型" value={`${settings.model}${settings.mode !== "auto" ? ` (${settings.mode})` : ""}`} />
+            <SettingRow label="thinking" value={String(settings.thinkingEnabled)} />
+            <SettingRow label="effort" value={settings.reasoningEffort} />
+            <SettingRow label="ctx win" value={formatTokenCount(contextWindowCapacity)} />
             <SettingRow label="cwd" value={cwd} />
+            <SettingRow label="verbose" value={String(verboseMode)} />
             {!compact ? <Text> </Text> : null}
           </Box>
         </Box>

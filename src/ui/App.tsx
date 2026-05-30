@@ -542,6 +542,7 @@ function categorizeToolGroup(msgs: SessionMessage[]): string {
           skills={skills}
           version={version}
           width={screenWidth}
+          verboseMode={verboseMode}
         />
       ) : null}
       {view === "chat" ? (

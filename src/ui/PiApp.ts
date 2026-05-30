@@ -269,7 +269,7 @@ export class PiApp {
       this.renderChat();
     } else {
       this.root.addChild(createWelcomeScreen(
-        this.projectRoot, this.settings, this.skills, this.model, this.terminal.columns,
+        this.projectRoot, this.settings, this.skills, this.model, this.terminal.columns, this.verboseMode,
       ));
       // 内联选择菜单（/model、/thinking、/skills）
       if (this.inlineSelectKind !== null && this.inlineSelectItems.length > 0) {

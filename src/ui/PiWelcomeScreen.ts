@@ -36,6 +36,7 @@ export function createWelcomeScreen(
   skills: SkillInfo[],
   version: string,
   width: number,
+  verboseMode: boolean,
 ): Container {
   const box = new Box(1, 0);
   const tips = buildWelcomeTips(skills);
@@ -45,8 +46,7 @@ export function createWelcomeScreen(
 
   // 窄屏模式
   if (width <= 32) {
-    box.addChild(new Text("DeepSeek Code", 0, 0, Theme.boldText));
-    box.addChild(new Text(`v${version || "unknown"}`, 0, 0, Theme.dimText));
+    box.addChild(new Text("DeepSeek Code CLI", 0, 0, Theme.boldText));
     if (tip) {
       box.addChild(new Text(`${tip.label} - ${tip.description}`, 0, 0, Theme.dimText));
     }
@@ -54,7 +54,7 @@ export function createWelcomeScreen(
   }
 
   // 标准模式
-  box.addChild(new Text(`DeepSeek Code CLI  v${version || "unknown"}`, 0, 0, Theme.boldText));
+  box.addChild(new Text("DeepSeek Code CLI", 0, 0, Theme.boldText));
   box.addChild(new Spacer(1));
 
   // 设置摘要
@@ -63,6 +63,7 @@ export function createWelcomeScreen(
   box.addChild(new Text(`  effort    ${settings.reasoningEffort}`, 0, 0));
   box.addChild(new Text(`  ctx win   ${formatTokenCount(ctxCapacity)}`, 0, 0));
   box.addChild(new Text(`  cwd       ${cwd}`, 0, 0));
+  box.addChild(new Text(`  verbose   ${verboseMode}`, 0, 0));
   box.addChild(new Spacer(1));
 
   // Tips
