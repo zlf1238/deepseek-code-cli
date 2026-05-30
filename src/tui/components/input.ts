@@ -496,7 +496,8 @@ export class Input implements Component, Focusable {
 
 	render(width: number): string[] {
 		const prompt = "\x1b[1m\x1b[32m❯ \x1b[0m\x1b[32m"; // 绿色 ❯ + 绿色输入文字
-		const promptVisibleWidth = 2; // "❯ " = 2 个可见列
+		// "❯"(U+276F) 的 eastAsianWidth=2，加空格共 3 个可见列
+		const promptVisibleWidth = 3;
 		const availableWidth = width - promptVisibleWidth;
 
 		if (availableWidth <= 0) {
@@ -570,13 +571,17 @@ export class Input implements Component, Focusable {
 				const padding = " ".repeat(Math.max(0, availableWidth - visualLength));
 				outputLines.push(prompt + textWithCursor + padding + "\x1b[0m");
 			} else {
-				// Non-cursor line — simple render with scrolling
+				// 非光标行 —— 用 "..."(ASCII三点) 截断，宽度明确为3列
+				// 原用 "…"(U+2026)，eastAsianWidth 返回1列，但在中文终端实际渲染为2列，
+				// 导致宽度计算与实际渲染不一致，遮挡最后1-2个汉字。
 				const totalWidth = visibleWidth(lineText);
 				let visibleText: string;
 				if (totalWidth <= availableWidth) {
 					visibleText = lineText;
 				} else {
-					visibleText = sliceByColumn(lineText, 0, availableWidth - 1, true) + "…";
+					const ellipsis = "...";
+					const ellipsisWidth = 3;
+					visibleText = sliceByColumn(lineText, 0, availableWidth - ellipsisWidth, true) + ellipsis;
 				}
 				const padding = " ".repeat(Math.max(0, availableWidth - visibleWidth(visibleText)));
 				const linePrefix = lineIdx === 0 ? prompt : "\x1b[32m  ";
