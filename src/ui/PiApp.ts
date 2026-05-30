@@ -638,6 +638,16 @@ export class PiApp {
               return;
             }
           }
+          // Alt+R: 快速滚动到顶部
+          if (data === "\x1br" || data === "\x1bR") {
+            this.terminal.write("\x1b[999S");
+            return;
+          }
+          // Alt+F: 快速滚动到底部
+          if (data === "\x1bf" || data === "\x1bF") {
+            this.terminal.write("\x1b[999T");
+            return;
+          }
           this.promptInput.handleInput(data);
         }
         this.checkSlashMenu();
