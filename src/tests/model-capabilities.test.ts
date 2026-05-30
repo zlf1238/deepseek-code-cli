@@ -11,7 +11,7 @@ import {
 } from "../model-capabilities";
 
 // ═══════════════════════════════════════════════
-// selectModelByPrice: no-op（主循环固定 Pro）
+// selectModelByPrice: no-op（主循环固定模型）
 // ═══════════════════════════════════════════════
 
 test("selectModelByPrice always returns primaryModel", () => {
@@ -24,9 +24,9 @@ test("selectModelByPrice always returns primaryModel", () => {
   assert.equal(selectModelByPrice("other-model", true, ctx).model, "other-model");
 });
 
-test("selectModelByPrice reason always mentions Supervisor-Worker", () => {
+test("selectModelByPrice reason reflects no-switch strategy", () => {
   const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, {});
-  assert.ok(result.reason.includes("Supervisor-Worker"));
+  assert.ok(result.reason.includes("不做切换"));
   assert.ok(Number.isNaN(result.paybackRounds));
 });
 

@@ -16,7 +16,7 @@
 
 # 项目实战经验
 
-> 通用实战经验（#1-#14, #17-#18）见 `~/.deepseek-code/AGENTS.md`。
+> 通用实战经验（#1-#17）见 `~/.deepseek-code/AGENTS.md`。
 
 ## 1. Ink Box 的 marginBottom/marginTop 会额外占用终端行 — 布局计算必须逐项累加
 

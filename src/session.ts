@@ -224,8 +224,6 @@ export type SkillInfo = {
   path: string;
   description: string;
   isLoaded?: boolean;
-  /** 执行模式：inline（正文注入当前会话）或 subagent（隔离 Flash 子智能体） */
-  runAs?: "inline" | "subagent";
 };
 
 type SessionManagerOptions = {
@@ -674,10 +672,6 @@ The candidate skills are as follows:\n\n`;
     try {
       const skillMd = fs.readFileSync(skillPath, "utf8");
       const parsed = matter(skillMd);
-      const runAsRaw = parsed.data.runAs;
-      const runAs = (runAsRaw === "subagent" || runAsRaw === "inline")
-        ? runAsRaw as "inline" | "subagent"
-        : "inline";
       return {
         name:
           typeof parsed.data.name === "string" && parsed.data.name.trim()
@@ -688,7 +682,6 @@ The candidate skills are as follows:\n\n`;
           typeof parsed.data.description === "string"
             ? parsed.data.description.trim()
             : "",
-        runAs,
       };
     } catch {
       return fallbackSkill;
@@ -944,8 +937,7 @@ The candidate skills are as follows:\n\n`;
       let currentThinkingEnabled = primary.thinkingEnabled;
       let currentBaseURL = primary.baseURL;
       let currentReasoningEffort = primary.reasoningEffort;
-      // Supervisor-Worker 架构：主循环固定 Pro，不做模型切换
-      // 代码修改通过 spawn_code_executor 委派给 Flash 子智能体（隔离上下文，不改缓存）
+      // 主循环不做模型切换，统一使用当前模型处理所有任务
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (this.isInterrupted(sessionId)) {
@@ -1192,7 +1184,7 @@ The candidate skills are as follows:\n\n`;
   async compactSession(sessionId: string, signal?: AbortSignal): Promise<void> {
     this.throwIfAborted(signal);
     // 硬编码 flash: 摘要是辅助任务，不值得付 Pro 费用。
-    // 借鉴 Reasonix: 所有辅助调用 (fold / forceSummary / subagent) 均 hard-code v4-flash + effort=high。
+    // 所有辅助调用 (fold / forceSummary) 均 hard-code v4-flash + effort=high。
     const flashInfo = this.createOpenAIClient("deepseek-v4-flash");
     const client = flashInfo.client ?? this.createOpenAIClient().client;
     const model = flashInfo.client ? flashInfo.model : this.createOpenAIClient().model;
@@ -1271,13 +1263,9 @@ The candidate skills are as follows:\n\n`;
     this.saveSessionMessages(sessionId, sessionMessages);
   }
 
-  private getPromptToolOptions(): { webSearchEnabled: boolean; supervisorMode: boolean } {
-    const primary = this.createOpenAIClient();
-    const supervisorMode =
-      (primary.autoSwitch?.enabled ?? true) && primary.model === "deepseek-v4-pro";
+  private getPromptToolOptions(): { webSearchEnabled: boolean } {
     return {
       webSearchEnabled: true,
-      supervisorMode,
     };
   }
 
@@ -2021,27 +2009,6 @@ The candidate skills are as follows:\n\n`;
       // 2. 执行这一个 tool call
       const toolName = getName(rawTc);
 
-      // spawn_code_executor 开始通知（UI 可见，不进入 API 历史）
-      if (toolName === "spawn_code_executor") {
-        const label = "[委派执行]";
-        const taskParam = (rawTc as { function?: { arguments?: string } })?.function?.arguments;
-        let taskPreview = "";
-        try {
-          if (taskParam) {
-            const parsed = JSON.parse(taskParam);
-            const task = typeof parsed.task === "string" ? parsed.task : "";
-            taskPreview = task.length > 500 ? `${task.slice(0, 500)}…` : task;
-          }
-        } catch { /* ignore parse failure */ }
-        this.onAssistantMessage(
-          this.buildAssistantMessage(
-            sessionId,
-            `${label} Flash 子智能体工作中…${taskPreview ? ` ${taskPreview}` : ""}`,
-            null
-          ),
-          false
-        );
-      }
 
       const [execution] = await this.toolExecutor.executeToolCalls(sessionId, [rawTc], {
         onProcessStart: (pid, command) => this.addSessionProcess(sessionId, pid, command),
@@ -2057,99 +2024,6 @@ The candidate skills are as follows:\n\n`;
         waitingForUser = true;
       }
 
-      // 合并子智能体 usage 到 session 的 usageByModel
-      if (
-        execution.result.name === "spawn_code_executor" &&
-        execution.result.metadata?.subagentUsage
-      ) {
-        const meta = execution.result.metadata!;
-        const sUsage = meta.subagentUsage as Record<string, number>;
-        const sModel = (meta.subagentModel as string) ?? "deepseek-v4-flash";
-        const sCostUsd = typeof meta.subagentCostUsd === "number" ? meta.subagentCostUsd : 0;
-        const sElapsedMs = typeof meta.subagentElapsedMs === "number" ? meta.subagentElapsedMs : 0;
-
-        this.updateSessionEntry(sessionId, (entry) => {
-          const currentByModel = (entry.usageByModel ?? {}) as Record<string, unknown>;
-          const modelEntry = (currentByModel[sModel] ?? {}) as Record<string, number>;
-          const merged = { ...modelEntry };
-          for (const [k, v] of Object.entries(sUsage)) {
-            merged[k] = (merged[k] ?? 0) + v;
-          }
-          return {
-            ...entry,
-            usageByModel: { ...currentByModel, [sModel]: merged },
-          } as typeof entry;
-        });
-
-        // 子智能体完成 UI 通知
-        const label = "[委派执行]";
-        const elapsed = sElapsedMs >= 60000
-          ? `${Math.floor(sElapsedMs / 60000)}m${Math.round((sElapsedMs % 60000) / 1000)}s`
-          : `${(sElapsedMs / 1000).toFixed(1)}s`;
-        const totalTokens = (sUsage.prompt_tokens ?? 0) + (sUsage.completion_tokens ?? 0);
-        const hitTokens = sUsage.prompt_cache_hit_tokens ?? 0;
-        const missTokens = sUsage.prompt_cache_miss_tokens ?? 0;
-        const hitPct = (hitTokens + missTokens) > 0
-          ? Math.round((hitTokens / (hitTokens + missTokens)) * 100)
-          : 0;
-        const costStr = sCostUsd > 0 ? ` · ¥${sCostUsd.toFixed(4)}` : "";
-
-        // 计算若由 Pro 模型执行同等 token 量的理论费用，用于对比节省
-        let savingsStr = "";
-        if (sCostUsd > 0) {
-          const proPricing = this.createOpenAIClient().pricing;
-          if (proPricing) {
-            const pHit = hitTokens;
-            const pMiss = missTokens;
-            const pPrompt = sUsage.prompt_tokens ?? 0;
-            const pCompletion = sUsage.completion_tokens ?? 0;
-            let proCost = 0;
-            proCost += (pHit / 1_000_000) * proPricing.inputCacheHitPricePerMillion;
-            proCost += (pMiss / 1_000_000) * proPricing.inputCacheMissPricePerMillion;
-            const uncat = Math.max(0, pPrompt - pHit - pMiss);
-            proCost += (uncat / 1_000_000) * proPricing.inputCacheMissPricePerMillion;
-            proCost += (pCompletion / 1_000_000) * proPricing.outputPricePerMillion;
-            if (proCost > sCostUsd) {
-              const saved = proCost - sCostUsd;
-              const pct = Math.round((saved / proCost) * 100);
-              savingsStr = ` · 比Pro节省 ¥${saved.toFixed(4)} (${pct}%)`;
-            }
-          }
-        }
-
-        this.onAssistantMessage(
-          this.buildAssistantMessage(
-            sessionId,
-            `${label} ✓ 完成 · ${elapsed} · token ${formatTokenCount(totalTokens)} · 缓存命中 ${hitPct}%${costStr}${savingsStr}`,
-            null
-          ),
-          false
-        );
-      } else if (
-        execution.result.name === "spawn_code_executor" &&
-        !execution.result.ok
-      ) {
-        // 子智能体失败通知：展示失败码
-        const meta = execution.result.metadata;
-        const failureCode = (meta?.failureCode as string) ?? "API_ERROR";
-        const codeLabel: Record<string, string> = {
-          API_ERROR: "API错误",
-          NO_CLIENT: "无可用客户端",
-          NOT_FOUND: "代码未找到",
-          AMBIGUOUS: "指令不明确",
-          TIMEOUT: "超迭代上限",
-          SCOPE_EXCEEDED: "范围越界",
-        };
-        const label = codeLabel[failureCode] ?? failureCode;
-        this.onAssistantMessage(
-          this.buildAssistantMessage(
-            sessionId,
-            `[委派执行] ✗ 失败 · ${label} · ${execution.result.error ?? "未知错误"}`,
-            null
-          ),
-          false
-        );
-      }
 
       // 3. 追加工具结果（AskUserQuestion 正常显示，其余隐藏）
       const toolFunction = getToolFunc(execution.toolCallId);

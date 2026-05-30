@@ -36,15 +36,11 @@ export type PricingSnapshot = {
 };
 
 /**
- * Supervisor-Worker 架构：Pro 固定主循环（热缓存），Flash 子智能体做代码修改。
+ * 模型选择策略：主循环不做 Pro↔Flash 切换，统一使用当前模型。
  *
- * 设计决策（2025-07）：
- *   主循环不再做 Pro↔Flash 模型切换。实测数据表明，任何主循环内的 Flash 切换
- *   都会污染 Pro 的 prefix-cache，使命中率从 0.95 降至 0.50，input 成本反而
- *   更高（200K 上下文时单次请求 input 成本 ¥0.30 vs ¥0.03）。
- *
- *   代码修改的 output 成本节省（¥6→¥2/M）委托给 spawn_code_executor 子智能体，
- *   它运行在隔离的上下文中，不影响主循环缓存。
+ * 设计决策：
+ *   实际数据表明，任何主循环内的模型切换都会污染 Pro 的 prefix-cache，
+ *   使命中率从 0.95 降至 0.50，input 成本反而更高。
  *
  *   selectModelByPrice 保留为 no-op：始终返回 primaryModel，不做切换。
  */
@@ -55,7 +51,7 @@ export function selectModelByPrice(
 ): { model: string; reason: string; paybackRounds: number } {
   return {
     model: primaryModel,
-    reason: "Supervisor-Worker 架构 —— 主循环固定 Pro，修改委派子智能体",
+    reason: "主循环固定模型，不做切换",
     paybackRounds: NaN,
   };
 }

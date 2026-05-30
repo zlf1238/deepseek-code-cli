@@ -3,7 +3,6 @@ import * as os from "os";
 import * as path from "path";
 import matter from "gray-matter";
 import type { ToolExecutionContext, ToolExecutionResult, ToolExecutionFollowUpMessage } from "./executor";
-import { runSkillSubagent } from "./code-executor";
 
 export async function handleSkillLoadTool(
   args: Record<string, unknown>,
@@ -55,14 +54,10 @@ export async function handleSkillLoadTool(
       };
     }
 
-    // ── 解析 frontmatter 决定 runAs 模式 ──
-    let runAs: string;
+    // ── 解析 frontmatter ──
     let skillContent: string;
-    let frontmatter: Record<string, unknown> = {};
     try {
       const parsed = matter(body);
-      frontmatter = (parsed.data ?? {}) as Record<string, unknown>;
-      runAs = typeof frontmatter.runAs === "string" ? frontmatter.runAs : "inline";
       skillContent = parsed.content;
     } catch {
       return {
@@ -70,32 +65,10 @@ export async function handleSkillLoadTool(
         name: "SkillLoad",
         error: `Failed to parse skill file for \"${name}\". The SKILL.md file may be corrupted.`,
         metadata: { failureCode: "AMBIGUOUS" as any },
-    };
-  }
+      };
+    }
 
-  // ── Subagent 模式：委派给 Flash 子智能体执行 ──
-  if (runAs === "subagent") {
-    const allowedTools = Array.isArray(frontmatter["allowed-tools"])
-      ? (frontmatter["allowed-tools"] as string[])
-      : undefined;
-    const model = typeof frontmatter.model === "string" ? frontmatter.model : undefined;
-    const maxToolIters = typeof frontmatter["max-tool-iters"] === "number"
-      ? (frontmatter["max-tool-iters"] as number)
-      : undefined;
-
-    return await runSkillSubagent(
-      context,
-      skillContent,
-      `Execute the "${name}" skill on the current project.`,
-      model,
-      allowedTools,
-      maxToolIters,
-      context.shouldStop,
-      "SkillLoad",
-    );
-  }
-
-  // ── Inline 模式（默认）：正文注入当前会话 ──
+    // ── 正文注入当前会话 ──
   const followUpMessages: ToolExecutionFollowUpMessage[] = [
     {
       role: "system",
