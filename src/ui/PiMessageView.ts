@@ -184,9 +184,14 @@ function truncate(value: string, max: number): string {
 /** Unicode 制表符集合：渲染后的表格行以这些字符开头 */
 const TABLE_LINE_CHARS = new Set(["│", "├", "└", "┌", "┬", "┴", "┼", "┤"]);
 
+/** 剥离 ANSI 转义码（如 chalk.dim 产生的 \x1b[2m） */
+const STRIP_ANSI_RE = /\x1b\[[0-9;]*m/g;
+
 /** 判断一行是否是渲染后的 Markdown 表格行（边框线或数据行），
- *  这些行不应添加消息前缀以保持边框对齐。 */
+ *  这些行不应添加消息前缀以保持边框对齐。
+ *  注意：渲染后的表格行可能以 ANSI 转义码开头（如 dim 边框色），需先剥离再判断。 */
 function isTableBorderLine(line: string): boolean {
-  const first = line[0];
+  const visible = line.replace(STRIP_ANSI_RE, "");
+  const first = visible[0];
   return first !== undefined && TABLE_LINE_CHARS.has(first);
 }
