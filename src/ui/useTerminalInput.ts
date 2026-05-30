@@ -72,6 +72,10 @@ export function useTerminalInput(
       }
     };
 
+    // 启用 bracketed paste mode：终端会将粘贴内容包裹在 \x1b[200~ ... \x1b[201~ 中，
+    // 使多行粘贴内容中的换行符能被正确识别，而非被解析为回车键。
+    process.stdout.write("\x1b[?2004h");
+
     const handleData = (data: Buffer | string): void => {
       const raw = String(data);
 
@@ -111,6 +115,9 @@ export function useTerminalInput(
 
     stdin.on("data", handleData);
     return () => {
+      // 禁用 bracketed paste mode，恢复终端默认行为
+      process.stdout.write("\x1b[?2004l");
+
       // 清理时立即投递所有待处理输入，避免丢失
       if (flushHandle !== null) {
         clearImmediate(flushHandle);

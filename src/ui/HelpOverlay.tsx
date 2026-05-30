@@ -16,7 +16,7 @@ const SHORTCUTS: ShortcutEntry[] = [
   { keys: "Ctrl+W", description: "删除前一个词" },
   { keys: "Ctrl+V", description: "粘贴剪贴板图片" },
   { keys: "Esc", description: "中断当前回复" },
-  { keys: "Ctrl+H / ?", description: "显示/关闭此帮助" },
+  { keys: "?", description: "显示/关闭此帮助" },
   { keys: "/", description: "打开技能和命令菜单" },
   { keys: "/new", description: "开始新对话" },
   { keys: "/resume", description: "恢复历史对话" },
@@ -45,7 +45,7 @@ export function HelpOverlay({ onClose }: Props): React.ReactElement {
         </Box>
       ))}
       <Box marginTop={1}>
-        <Text dimColor>按 Esc 或 Ctrl+H 关闭此面板</Text>
+        <Text dimColor>按 Esc 或 ? 关闭此面板</Text>
       </Box>
     </Box>
   );
