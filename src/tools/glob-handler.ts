@@ -78,7 +78,9 @@ export async function handleGlobTool(
     });
   });
 
-  let { stdout, stderr, exitCode } = await doSpawn("rg", ["--files", "-g", pattern, dir]);
+  // Windows 上 rg 对反斜杠路径处理有问题，转为正斜杠
+  const searchDir = process.platform === "win32" ? dir.replace(/\\/g, "/") : dir;
+  let { stdout, stderr, exitCode } = await doSpawn("rg", ["--files", "-g", pattern, searchDir]);
   if (exitCode === null) {
     return {
       ok: false,

@@ -10,3 +10,8 @@ docs/developers/worklogs/
 *思考过程.txt
 log.txt
 models.generated.ts
+# 临时文件
+nul
+out.txt
+test_hello.txt
+*.java

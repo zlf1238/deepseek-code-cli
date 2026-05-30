@@ -15,7 +15,6 @@
 ## 安装
 
 ```sh
-git clone <repo-url>
 cd deepseek-code-cli
 npm install
 npm run build
@@ -137,7 +136,7 @@ node dist/cli.cjs
 
 - bash 工具在 Windows 上自动使用 `cmd.exe`（通过 `%COMSPEC%`）
 - 如果安装了 Git Bash 且设置了 `SHELL` 环境变量，优先使用 Git Bash
-- ripgrep 通过 winget 安装：`winget install BurntSushi.ripgrep`
+- ripgrep 通过 winget 安装：`winget install BurntSushi.ripgrep.MSVC`
 
 ## 技能系统
 

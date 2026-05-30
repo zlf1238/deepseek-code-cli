@@ -1,6 +1,6 @@
 import type { SkillInfo } from "../session";
 
-export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoSwitch" | "verbose" | "new" | "resume" | "exit" | "learn" | "worklog";
+export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoSwitch" | "verbose" | "new" | "resume" | "exit" | "learn" | "worklog" | "compact";
 
 export type SlashCommandItem = {
   kind: SlashCommandKind;
@@ -70,6 +70,12 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommandItem[] = [
     name: "worklog",
     label: "/worklog",
     description: "总结本轮对话的决策过程，生成工作日志到 docs/developers/worklogs"
+  },
+  {
+    kind: "compact",
+    name: "compact",
+    label: "/compact",
+    description: "手动压缩当前会话上下文（节省 token）"
   }
 ];
 

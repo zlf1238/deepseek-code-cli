@@ -1,6 +1,7 @@
 import React from "react";
 import { render } from "ink";
 import { App } from "./ui/App";
+import { startPiTui } from "./pi-tui-entry";
 import { checkForNpmUpdate, promptForPendingUpdate, type PackageInfo } from "./updateCheck";
 
 const args = process.argv.slice(2);
@@ -59,6 +60,13 @@ void main();
 
 async function main(): Promise<void> {
   const updatePromptResult = await promptForPendingUpdate(packageInfo);
+
+  // 旧 Ink 引擎回退开关：PI_INK=1 使用 Ink，否则默认使用 pi TUI
+  if (process.env.PI_INK !== "1") {
+    void updatePromptResult;
+    await startPiTui(packageInfo.version || "deepseek-code");
+    return;
+  }
 
   const inkInstance = render(<App projectRoot={projectRoot} version={packageInfo.version} />, {
     exitOnCtrlC: false

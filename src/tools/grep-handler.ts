@@ -58,7 +58,9 @@ function buildGrepArgs(
   }
 
   // -- 防止 pattern 含 - 被误解析为参数
-  args.push("--", pattern, dir);
+  // Windows 上 rg 对反斜杠路径处理有问题，转为正斜杠
+  const searchDir = process.platform === "win32" ? dir.replace(/\\/g, "/") : dir;
+  args.push("--", pattern, searchDir);
   return args;
 }
 
