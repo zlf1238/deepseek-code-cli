@@ -197,6 +197,8 @@ export interface OverlayHandle {
  */
 export class Container implements Component {
 	children: Component[] = [];
+	/** 最大可见行数。超出此行数的内容将被截断（不进入终端），用于跳转等需要视口在顶部的场景。null 表示不限制。 */
+	maxVisibleLines?: number | null;
 
 	addChild(component: Component): void {
 		this.children.push(component);
@@ -221,10 +223,17 @@ export class Container implements Component {
 
 	render(width: number): string[] {
 		const lines: string[] = [];
+		const maxLines = this.maxVisibleLines;
 		for (const child of this.children) {
+			if (maxLines != null && lines.length >= maxLines) {
+				break;
+			}
 			const childLines = child.render(width);
 			for (const line of childLines) {
 				lines.push(line);
+				if (maxLines != null && lines.length >= maxLines) {
+					break;
+				}
 			}
 		}
 		return lines;
@@ -1000,9 +1009,9 @@ export class TUI extends Container {
 			// 如果设置了 scrollTarget，用 ANSI 序列将物理视口移动到目标位置
 			if (this.scrollTarget !== null) {
 				if (this.scrollTarget === 0 && newLines.length > height) {
-					// 将光标上移到内容顶部，终端自动滚动视口使光标可见
-					const scrollAmount = newLines.length - 1;
-					buffer += "\x1b[" + scrollAmount + "A";
+					// Scroll Down: 将内容向下滚动，视口自然上移到顶部
+					const scrollAmount = newLines.length - height;
+					buffer += "\x1b[" + scrollAmount + "T";
 				} else if (this.scrollTarget === 0) {
 					buffer += "\x1b[H";
 				}
