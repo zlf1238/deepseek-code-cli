@@ -36,10 +36,11 @@ export class PiQuestionList implements Component {
   private onSelectCb?: (messageIndex: number) => void;
   private onCancelCb?: () => void;
 
-  constructor(maxVisible: number) {
+  constructor(maxVisible: number, termWidth?: number) {
+    const maxCol = termWidth ? Math.max(30, Math.floor(termWidth * 0.7)) : 55;
     this.selectList = new SelectList({
       maxVisible: Math.max(3, maxVisible),
-      layout: { minPrimaryColumnWidth: 15, maxPrimaryColumnWidth: 55 },
+      layout: { minPrimaryColumnWidth: 15, maxPrimaryColumnWidth: maxCol },
       theme: questionListTheme,
     });
   }

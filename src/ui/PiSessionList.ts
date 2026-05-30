@@ -53,11 +53,12 @@ export class PiSessionList implements Component {
   private onDeleteCb?: (sessionIds: string[]) => void;
   private maxVisible: number;
 
-  constructor(maxVisible: number) {
+  constructor(maxVisible: number, termWidth?: number) {
     this.maxVisible = Math.max(3, maxVisible);
+    const maxCol = termWidth ? Math.max(30, Math.floor(termWidth * 0.7)) : 60;
     this.selectList = new SelectList({
       maxVisible: this.maxVisible,
-      layout: { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: 60 },
+      layout: { minPrimaryColumnWidth: 20, maxPrimaryColumnWidth: maxCol },
       theme: sessionListTheme,
     });
     // 主题在构造函数中已设置

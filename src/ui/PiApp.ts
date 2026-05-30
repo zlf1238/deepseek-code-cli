@@ -146,8 +146,9 @@ export class PiApp {
 
     this.promptInput = new PiPromptInput();
     const listMaxVisible = Math.max(5, this.terminal.rows - 6);
-    this.sessionList = new PiSessionList(listMaxVisible);
-    this.questionList = new PiQuestionList(listMaxVisible);
+    const listMaxWidth = this.terminal.columns;
+    this.sessionList = new PiSessionList(listMaxVisible, listMaxWidth);
+    this.questionList = new PiQuestionList(listMaxVisible, listMaxWidth);
     this.askPrompt = new PiAskUserQuestionPrompt();
 
     this.setupCallbacks();
