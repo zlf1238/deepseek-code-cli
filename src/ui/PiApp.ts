@@ -15,7 +15,8 @@ import { ProcessTerminal } from "../tui/terminal";
 import { createWelcomeScreen } from "./PiWelcomeScreen";
 import { createMessageView, type MessageRole } from "./PiMessageView";
 import { PiPromptInput, type PromptSubmission, type SlashContext } from "./PiPromptInput";
-import { PiSessionList } from "./PiSessionList";
+import { PiSessionList, formatTimestamp } from "./PiSessionList";
+import { PiQuestionList, type QuestionItem } from "./PiQuestionList";
 import { PiAskUserQuestionPrompt } from "./PiAskUserQuestionPrompt";
 import { createSlashCommandList } from "./PiSlashCommandList";
 import { createHelpOverlay } from "./PiHelpOverlay";
@@ -53,7 +54,7 @@ const DEFAULT_MODEL = "deepseek-v4-pro";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 /** 应用视图 */
-type View = "welcome" | "chat" | "session-list" | "ask-question";
+type View = "welcome" | "chat" | "session-list" | "question-list" | "ask-question";
 
 /** 消息条目 */
 interface Message {
@@ -85,9 +86,14 @@ export class PiApp {
   private terminal: ProcessTerminal;
   private root: Container;
   private view: View = "welcome";
+  /** 进入 question-list 前所在的视图（Esc 时据此决定返回 chat 还是 session-list） */
+  private previousView: View = "welcome";
   private messages: Message[] = [];
   private promptInput: PiPromptInput;
   private sessionList: PiSessionList;
+  private questionList: PiQuestionList;
+  /** Alt+Q 或 /resume 选中会话后暂存，供 question-list 使用 */
+  private pendingSessionId: string | null = null;
   private askPrompt: PiAskUserQuestionPrompt;
   private settings!: ResolvedDeepcodingSettings;
   private skills: SkillInfo[] = [];
@@ -140,6 +146,7 @@ export class PiApp {
 
     this.promptInput = new PiPromptInput();
     this.sessionList = new PiSessionList(10);
+    this.questionList = new PiQuestionList(10);
     this.askPrompt = new PiAskUserQuestionPrompt();
 
     this.setupCallbacks();
@@ -418,6 +425,53 @@ export class PiApp {
     this.root.addChild(this.sessionList);
   }
 
+  /** 渲染提问列表视图：列出会话中所有用户提问（role === "user"） */
+  private renderQuestionList(sessionId: string): void {
+    this.view = "question-list";
+    this.root.clear();
+
+    // 加载该会话所有消息，使用与 loadMessagesFromSession 相同的过滤逻辑
+    const allMessages = this.sessionManager.listSessionMessages(sessionId);
+    const filtered = allMessages.filter(
+      (m) => m.visible && (m.role !== "system" || m.meta?.isSummary)
+    );
+    const questions: QuestionItem[] = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const m = filtered[i];
+      // 只记录 user 角色的提问（filtered 已排除纯系统消息）
+      if (m.role !== "user") continue;
+      const content = (m.content || "").replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+      const maxLen = 55;
+      const display = content.length <= maxLen ? content : `${content.slice(0, maxLen)}…`;
+      questions.push({
+        messageIndex: i,
+        displayIndex: questions.length + 1,
+        content: display || "(无内容)",
+        timestamp: formatTimestamp(m.createTime),
+      });
+    }
+
+    // 会话标题
+    const entry = this.sessionManager.getSession(sessionId);
+    const title = entry?.summary
+      ? entry.summary.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim().slice(0, 55)
+      : sessionId;
+    this.root.addChild(new Text(Theme.boldText("  选择要跳转的提问"), 0, 0));
+    this.root.addChild(new Text(Theme.dimText(`  对话: ${title}`), 0, 0));
+    this.root.addChild(new Spacer(1));
+
+    this.questionList.setQuestions(questions);
+    this.root.addChild(this.questionList);
+
+    // 底部操作提示：根据来源决定返回文案
+    const backLabel = this.previousView === "session-list"
+      ? "Esc/b: 返回对话列表"
+      : "Esc/b: 返回对话";
+    this.root.addChild(new Text(
+      Theme.dimText(`  ↑/↓: 切换 · Enter: 跳转到此提问 · ${backLabel}`), 0, 0,
+    ));
+  }
+
   private renderAskQuestion(questions: AskUserQuestionItem[]): void {
     this.view = "ask-question";
     this.root.clear();
@@ -574,12 +628,25 @@ export class PiApp {
             this.promptInput.handleInput(data);
           }
         } else {
+          // Alt+Q: 查看当前会话的提问列表
+          if (data === "\x1bq" || data === "\x1bQ") {
+            const activeId = this.sessionManager.getActiveSessionId();
+            if (activeId && this.messages.length > 0) {
+              this.previousView = this.view;
+              this.pendingSessionId = activeId;
+              this.renderQuestionList(activeId);
+              return;
+            }
+          }
           this.promptInput.handleInput(data);
         }
         this.checkSlashMenu();
         break;
       case "session-list":
         this.sessionList.handleInput(data);
+        break;
+      case "question-list":
+        this.questionList.handleInput(data);
         break;
       case "ask-question":
         this.askPrompt.handleInput(data);
@@ -603,15 +670,30 @@ export class PiApp {
     this.promptInput.onSlashChange = (ctx) => this.handleSlashChange(ctx);
 
     this.sessionList.onSelect = (id) => {
-      this.sessionManager.setActiveSessionId(id);
-      this.loadMessagesFromSession(id);
-      const entry = this.sessionManager.getSession(id);
+      // 先进入提问列表，而非直接进入 chat
+      this.previousView = "session-list";
+      this.pendingSessionId = id;
+      this.renderQuestionList(id);
+    };
+    this.sessionList.onCancel = () => this.renderChat();
+    this.questionList.onSelect = (messageIndex) => {
+      const sessionId = this.pendingSessionId!;
+      this.sessionManager.setActiveSessionId(sessionId);
+      this.loadMessagesFromSession(sessionId, messageIndex);
+      const entry = this.sessionManager.getSession(sessionId);
       if (entry) {
         this.statusLine = buildStatusLine(entry, this.model, this.settings.pricing);
       }
       this.renderChat();
     };
-    this.sessionList.onCancel = () => this.renderChat();
+    this.questionList.onCancel = () => {
+      if (this.previousView === "session-list") {
+        this.sessions = this.sessionManager.listSessions();
+        this.renderSessionList(this.sessions);
+      } else {
+        this.renderChat();
+      }
+    };
     this.sessionList.onDelete = (sessionIds) => {
       // P3-5: 删除确认 — 只有一个会话时需要确认
       if (sessionIds.length === 1) {
@@ -1148,12 +1230,37 @@ export class PiApp {
     this.renderChat();
   }
 
-  /** 从 SessionManager 加载消息到内部 messages 列表 */
-  private loadMessagesFromSession(sessionId: string): void {
-    const sessionMessages = this.sessionManager.listSessionMessages(sessionId);
-    this.messages = sessionMessages
-      .filter((m) => m.visible && (m.role !== "system" || m.meta?.isSummary))
-      .map((m) => ({
+  /** 从 SessionManager 加载消息到内部 messages 列表。可指定 sinceMessageIndex 截断前面的消息。 */
+  private loadMessagesFromSession(sessionId: string, sinceMessageIndex?: number): void {
+    const allMessages = this.sessionManager.listSessionMessages(sessionId);
+
+    // 先过滤出可见且非纯系统消息
+    let filtered = allMessages.filter(
+      (m) => m.visible && (m.role !== "system" || m.meta?.isSummary)
+    );
+
+    // 截断：从指定索引开始（用于提问列表跳转）
+    if (sinceMessageIndex !== undefined && sinceMessageIndex > 0 && sinceMessageIndex < filtered.length) {
+      const skippedCount = sinceMessageIndex;
+      filtered = filtered.slice(sinceMessageIndex);
+      // 在开头插入省略提示
+      const now = new Date().toISOString();
+      filtered = [{
+        id: `skip-hint-${Date.now()}`,
+        sessionId,
+        role: "system" as const,
+        content: `↑ 上方有 ${skippedCount} 条更早的消息已省略`,
+        contentParams: null,
+        messageParams: null,
+        compacted: false,
+        visible: true,
+        createTime: now,
+        updateTime: now,
+        meta: { isSummary: true },
+      }, ...filtered];
+    }
+
+    this.messages = filtered.map((m) => ({
         role:
           m.role === "assistant" ? "assistant" as MessageRole
           : m.role === "tool" ? "assistant" as MessageRole
