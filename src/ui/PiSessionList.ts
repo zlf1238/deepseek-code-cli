@@ -10,6 +10,7 @@ import { SelectList } from "../tui/components/select-list";
 import type { Component } from "../tui/tui";
 import type { SessionEntry } from "../session";
 import { Theme } from "../tui/ThemeAdapter";
+import { visibleWidth } from "../tui/utils";
 
 /** 会话列表模式 */
 type Mode = "browse" | "search" | "delete";
@@ -264,11 +265,15 @@ export class PiSessionList implements Component {
       : this.allSessions;
 
     const items: SelectItem[] = filtered.map((s) => {
-      const rawLabel = formatSessionTitle(s.summary || s.id, 80);
+      // 统一截断到 25 字符，再用空格填充到 50 列，使中英文项视觉宽度一致
+      const rawLabel = formatSessionTitle(s.summary || s.id, 25);
       const rawDesc = `${s.status || "unknown"} · ${formatTimestamp(s.updateTime)}`;
+      const labelWidth = visibleWidth(rawLabel);
+      const targetWidth = 50;
+      const paddedLabel = labelWidth >= targetWidth ? rawLabel : rawLabel + ' '.repeat(targetWidth - labelWidth);
       return {
         value: s.id,
-        label: q ? PiSessionList.highlightMatch(rawLabel, q) : rawLabel,
+        label: q ? PiSessionList.highlightMatch(paddedLabel, q) : paddedLabel,
         description: q ? PiSessionList.highlightMatch(rawDesc, q) : rawDesc,
       };
     });
