@@ -114,7 +114,23 @@ export class PiSessionList implements Component {
   // ── Component 接口 ──
 
   render(width: number): string[] {
-    return this.selectList.render(width);
+    const lines: string[] = [];
+    const items = this.selectList.getItems();
+    const idx = this.selectList.getSelectedIndex();
+    if (idx >= 0 && idx < items.length) {
+      const sessionId = items[idx].value;
+      const session = this.allSessions.find(s => s.id === sessionId);
+      if (session) {
+        const summary = session.summary || session.id;
+        const clean = summary.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+        const maxW = Math.max(10, width - 2);
+        const preview = clean.length <= maxW ? clean : clean.slice(0, maxW) + "…";
+        lines.push(Theme.dimText(`  ${preview}`));
+        lines.push("");
+      }
+    }
+    lines.push(...this.selectList.render(width));
+    return lines;
   }
 
   handleInput(keyData: string): void {
