@@ -8,6 +8,10 @@
 /root/.nvm/versions/node/v22.22.2/bin/node --import tsx --test src/tests/xxx.test.ts
 ```
 
+## 提交规范
+
+- 所有 git commit message 必须使用中文书写。
+
 ## 项目特定禁止
 
 - 索引过期时反复 `gitnexus_query`
