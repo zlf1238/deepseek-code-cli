@@ -449,6 +449,7 @@ export class PiApp {
         messageIndex: i,
         displayIndex: questions.length + 1,
         content: display || "(无内容)",
+        fullContent: content || "(无内容)",
         timestamp: formatTimestamp(m.createTime),
       });
     }

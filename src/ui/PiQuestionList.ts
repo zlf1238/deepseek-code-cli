@@ -15,8 +15,10 @@ export interface QuestionItem {
   messageIndex: number;
   /** 显示序号 #1, #2, #3... */
   displayIndex: number;
-  /** 提问内容摘要（已截断） */
+  /** 提问内容摘要（已截断，用于列表显示） */
   content: string;
+  /** 完整提问内容（用于预览行） */
+  fullContent: string;
   /** 提问时间 */
   timestamp: string;
 }
@@ -33,6 +35,7 @@ const questionListTheme: SelectListTheme = {
 /** pi 版本的提问选择列表 */
 export class PiQuestionList implements Component {
   private selectList: SelectList;
+  private items: QuestionItem[] = [];
   private onSelectCb?: (messageIndex: number) => void;
   private onCancelCb?: () => void;
 
@@ -46,8 +49,9 @@ export class PiQuestionList implements Component {
   }
 
   /** 设置提问数据 */
-  setQuestions(items: QuestionItem[]): void {
-    const selectItems: SelectItem[] = items.map((q) => ({
+  setQuestions(newItems: QuestionItem[]): void {
+    this.items = newItems;
+    const selectItems: SelectItem[] = newItems.map((q) => ({
       value: String(q.messageIndex),
       label: `#${q.displayIndex}  ${q.content}`,
       description: q.timestamp,
@@ -73,7 +77,19 @@ export class PiQuestionList implements Component {
   // ── Component 接口 ──
 
   render(width: number): string[] {
-    return this.selectList.render(width);
+    const lines: string[] = [];
+    const selItems = this.selectList.getItems();
+    const idx = this.selectList.getSelectedIndex();
+    if (idx >= 0 && idx < selItems.length && idx < this.items.length) {
+      const item = this.items[idx];
+      const maxW = Math.max(10, width - 2);
+      const raw = `#${item.displayIndex}  ${item.fullContent}`;
+      const preview = raw.length <= maxW ? raw : raw.slice(0, maxW) + "…";
+      lines.push(Theme.dimText(`  ${preview}`));
+      lines.push("");
+    }
+    lines.push(...this.selectList.render(width));
+    return lines;
   }
 
   handleInput(data: string): void {
