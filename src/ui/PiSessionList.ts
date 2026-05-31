@@ -42,6 +42,31 @@ export function formatTimestamp(value: string): string {
   }
 }
 
+/** 将文本按指定可见宽度换行（支持中英文混合） */
+function wrapText(text: string, lineWidth: number): string[] {
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (visibleWidth(remaining) <= lineWidth) {
+      lines.push(remaining);
+      break;
+    }
+    let hi = Math.min(remaining.length, lineWidth);
+    let lo = 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (visibleWidth(remaining.slice(0, mid)) <= lineWidth) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    lines.push(remaining.slice(0, lo));
+    remaining = remaining.slice(lo);
+  }
+  return lines;
+}
+
 /** pi 版本的会话选择列表 */
 export class PiSessionList implements Component {
   private selectList: SelectList;
@@ -124,8 +149,11 @@ export class PiSessionList implements Component {
         const summary = session.summary || session.id;
         const clean = summary.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
         const maxW = Math.max(10, width - 2);
-        const preview = clean.length <= maxW ? clean : clean.slice(0, maxW) + "…";
-        lines.push(Theme.dimText(`  ${preview}`));
+        // 按可见宽度换行显示完整内容，不截断
+        const wrapped = wrapText(clean, maxW);
+        for (const wl of wrapped) {
+          lines.push(Theme.dimText(`  ${wl}`));
+        }
         lines.push("");
       }
     }

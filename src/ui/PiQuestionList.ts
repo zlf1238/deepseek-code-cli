@@ -8,6 +8,7 @@ import type { SelectItem, SelectListTheme } from "../tui/components/select-list"
 import { SelectList } from "../tui/components/select-list";
 import type { Component } from "../tui/tui";
 import { Theme } from "../tui/ThemeAdapter";
+import { visibleWidth } from "../tui/utils";
 
 /** 提问条目 */
 export interface QuestionItem {
@@ -31,6 +32,31 @@ const questionListTheme: SelectListTheme = {
   scrollInfo: Theme.dimText,
   noMatch: Theme.dimText,
 };
+
+/** 将文本按指定可见宽度换行（支持中英文混合） */
+function wrapText(text: string, lineWidth: number): string[] {
+  const lines: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (visibleWidth(remaining) <= lineWidth) {
+      lines.push(remaining);
+      break;
+    }
+    let hi = Math.min(remaining.length, lineWidth);
+    let lo = 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (visibleWidth(remaining.slice(0, mid)) <= lineWidth) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    lines.push(remaining.slice(0, lo));
+    remaining = remaining.slice(lo);
+  }
+  return lines;
+}
 
 /** pi 版本的提问选择列表 */
 export class PiQuestionList implements Component {
@@ -84,8 +110,11 @@ export class PiQuestionList implements Component {
       const item = this.items[idx];
       const maxW = Math.max(10, width - 2);
       const raw = `#${item.displayIndex}  ${item.fullContent}`;
-      const preview = raw.length <= maxW ? raw : raw.slice(0, maxW) + "…";
-      lines.push(Theme.dimText(`  ${preview}`));
+      // 按可见宽度换行显示完整内容，不截断
+      const wrapped = wrapText(raw, maxW);
+      for (const wl of wrapped) {
+        lines.push(Theme.dimText(`  ${wl}`));
+      }
       lines.push("");
     }
     lines.push(...this.selectList.render(width));
