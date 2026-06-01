@@ -841,6 +841,17 @@ export class PiApp {
   private handleSlashCommandSelection(item: { kind: string; name: string; label: string }): void {
     switch (item.kind) {
       case "new":
+        // 重读 settings.json，使 /thinking、/model 等持久化修改生效
+        try {
+          this.settings = resolveSettings(
+            this.readSettings(),
+            { model: this.model, baseURL: DEFAULT_BASE_URL }
+          );
+          this.model = this.settings.model;
+          this.verboseMode = this.readSettings()?.verboseMode ?? false;
+        } catch {
+          // 保持当前 settings
+        }
         this.sessionManager.setActiveSessionId(null);
         this.messages = [];
         this.busy = false;
@@ -1015,20 +1026,17 @@ export class PiApp {
     this.closeInlineSelect();
   }
 
-  /** 处理思考模式选择 */
+  /** 处理思考模式选择（仅持久化，新开会话时生效，避免切换参数污染 prefix-cache） */
   private handleInlineThinkingSelect(value: string): void {
     if (value === "toggle") {
       const enabled = !this.settings.thinkingEnabled;
       updateThinkingConfigInSettings(enabled, this.settings.reasoningEffort);
-      this.settings.thinkingEnabled = enabled;
-      this.addMessage("assistant", `思考模式已${enabled ? "开启" : "关闭"}`);
+      this.addMessage("assistant", `思考模式将在新会话中${enabled ? "开启" : "关闭"}（当前会话不受影响）`);
     } else {
       // effort: "max" 或 "high"
       const effort = value as "high" | "max";
       updateThinkingConfigInSettings(true, effort);
-      this.settings.thinkingEnabled = true;
-      this.settings.reasoningEffort = effort;
-      this.addMessage("assistant", `思考模式已开启 (${effort === "max" ? "最大推理深度" : "深度推理"})`);
+      this.addMessage("assistant", `推理深度将在新会话中切换为 ${effort}（当前会话不受影响）`);
     }
     this.closeInlineSelect();
   }
