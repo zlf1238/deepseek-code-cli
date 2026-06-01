@@ -243,15 +243,28 @@ export function renderTableFromLines(lines: string[], maxWidth?: number): string
   return renderTable(table, maxWidth);
 }
 
+/** 表格列宽缓存：流式渲染时确保列宽只扩不缩，防止终端列宽抖动导致表头残留 */
+const tableWidthCache = new Map<string, number[]>();
+
+/** 用表头和列数生成缓存 key */
+function getTableCacheKey(headers: string[]): string {
+  return `${headers.length}:${headers.join("\x00")}`;
+}
+
+/** 清除表格列宽缓存（会话切换时调用） */
+export function clearTableWidthCache(): void {
+  tableWidthCache.clear();
+}
+
 /**
  * 将解析后的表格数据渲染为带 Unicode 制表符边框的字符串。
- * 支持左/中/右对齐，每列宽度按最长内容自适应。
+ * 支持左/中/右对齐。流式渲染时使用历史最大列宽确保列宽只扩不缩。
  */
 export function renderTable(data: TableData, maxWidth?: number): string {
   const { headers, align, rows } = data;
   const numCols = headers.length;
 
-  // 计算每列宽度：取表头和数据中最长的内容 + 左右各 1 空格
+  // 计算每列宽度：取表头和数据中最长的内容
   let colWidths = headers.map((header, colIdx) => {
     let max = displayWidth(header);
     for (const row of rows) {
@@ -261,6 +274,16 @@ export function renderTable(data: TableData, maxWidth?: number): string {
     }
     return Math.max(max, 1);
   });
+
+  // 流式渲染兼容：取历史最大列宽作为下限，防止列宽回缩导致终端旧表头残留
+  const cacheKey = getTableCacheKey(headers);
+  const cached = tableWidthCache.get(cacheKey);
+  if (cached) {
+    for (let i = 0; i < numCols; i++) {
+      colWidths[i] = Math.max(colWidths[i], cached[i] ?? 0);
+    }
+  }
+  tableWidthCache.set(cacheKey, [...colWidths]);
 
   // 8.4 终端自适应宽度：总宽度超过 maxWidth 时，按比例截断
   if (maxWidth && maxWidth > 0) {

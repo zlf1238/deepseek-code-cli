@@ -116,6 +116,8 @@ export class PiApp {
   private prevBusy = false;
   private promptStartTime = 0;
   private streamProgress: { phase: string; startedAt: string; estimatedTokens?: number; formattedTokens?: string } | null = null;
+  /** 流式渲染防抖定时器（减少 Markdown 表格列宽抖动时的渲染频率） */
+  private streamRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** 斜杠命令菜单状态 */
   private slashItems: SlashCommandItem[] = [];
@@ -224,10 +226,19 @@ export class PiApp {
       onLlmStreamProgress: (progress) => {
         if (progress.phase === "end") {
           this.streamProgress = null;
+          // 流结束立即渲染最终帧
+          if (this.streamRenderTimer) { clearTimeout(this.streamRenderTimer); this.streamRenderTimer = null; }
+          if (this.view === "chat") this.renderChat();
         } else {
           this.streamProgress = progress;
+          // 流式渲染防抖：50ms 内聚合多次更新为一次渲染，减少表格列宽抖动场景的终端残留
+          if (!this.streamRenderTimer) {
+            this.streamRenderTimer = setTimeout(() => {
+              this.streamRenderTimer = null;
+              if (this.view === "chat") this.renderChat();
+            }, 50);
+          }
         }
-        if (this.view === "chat") this.renderChat();  // 实时更新 loading 文本
       },
     });
 
