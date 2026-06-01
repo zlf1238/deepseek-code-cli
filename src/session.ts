@@ -934,7 +934,9 @@ The candidate skills are as follows:\n\n`;
       let lastToolName: string | undefined;
       let currentClient = primary.client;
       let currentModel = primaryModel;
-      let currentThinkingEnabled = primary.thinkingEnabled;
+      let currentThinkingEnabled = await this.resolveEffectiveThinking(
+        primary, sessionId
+      );
       let currentBaseURL = primary.baseURL;
       let currentReasoningEffort = primary.reasoningEffort;
       // 主循环不做模型切换，统一使用当前模型处理所有任务
@@ -2217,6 +2219,53 @@ The candidate skills are as follows:\n\n`;
       }
       return false;
     } catch {
+      return false;
+    }
+  }
+
+  /** 确定本轮实际使用的思考模式。如果已手动关闭，且智能思考开启，则用 Flash 判断是否需要深度推理。 */
+  private async resolveEffectiveThinking(
+    primary: ReturnType<CreateOpenAIClient>,
+    sessionId: string,
+  ): Promise<boolean> {
+    // 用户已手动开启 → 直接使用
+    if (primary.thinkingEnabled) return true;
+    // 智能思考关闭 → 保持关闭
+    if (!primary.autoThinkingEnabled) return false;
+    // 没有客户端 → 无法判断
+    if (!primary.client) return false;
+
+    // 获取最后一条用户消息
+    const sessionMessages = this.listSessionMessages(sessionId);
+    const lastUser = [...sessionMessages].reverse().find((m) => m.role === "user");
+    const prompt = typeof lastUser?.content === "string" ? lastUser.content.trim() : "";
+    // 太短的 prompt 不判断（如 "继续"、"提交git"）
+    if (prompt.length < 10) return false;
+
+    try {
+      // 用 Flash 做快速分类（~0.3s，~0.0001元）
+      const flashInfo = this.createOpenAIClient("deepseek-v4-flash");
+      if (!flashInfo.client) return false;
+
+      const flashThinking = buildThinkingRequestOptions(true, flashInfo.baseURL, "high");
+      const response = await flashInfo.client.chat.completions.create({
+        model: flashInfo.model,
+        messages: [{
+          role: "system",
+          content: "你是一个编程问题分类器。判断用户问题是否需要深度推理（多步分析、架构设计、bug追踪、代码重构、影响面评估等）。仅输出 YES 或 NO。"
+        }, {
+          role: "user",
+          content: prompt.slice(0, 500)
+        }],
+        max_tokens: 3,
+        temperature: 0,
+        ...flashThinking
+      });
+
+      const answer = (response.choices?.[0]?.message?.content ?? "").trim().toUpperCase();
+      return answer.includes("YES");
+    } catch {
+      // 分类失败，保持关闭（安全默认）
       return false;
     }
   }

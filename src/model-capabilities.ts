@@ -35,27 +35,6 @@ export type PricingSnapshot = {
   outputPricePerMillion: number;
 };
 
-/**
- * 模型选择策略：主循环不做 Pro↔Flash 切换，统一使用当前模型。
- *
- * 设计决策：
- *   实际数据表明，任何主循环内的模型切换都会污染 Pro 的 prefix-cache，
- *   使命中率从 0.95 降至 0.50，input 成本反而更高。
- *
- *   selectModelByPrice 保留为 no-op：始终返回 primaryModel，不做切换。
- */
-export function selectModelByPrice(
-  primaryModel: string,
-  _hadToolCalls: boolean,
-  _ctx: Record<string, unknown>,
-): { model: string; reason: string; paybackRounds: number } {
-  return {
-    model: primaryModel,
-    reason: "主循环固定模型，不做切换",
-    paybackRounds: NaN,
-  };
-}
-
 /** 模型选择下拉菜单中显示的简短提供商标签。 */
 export function getModelProviderLabel(model: string): string {
   if (DEEPSEEK_V4_MODELS.has(model)) return "DeepSeek";

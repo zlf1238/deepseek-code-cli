@@ -176,6 +176,7 @@ export class PiApp {
         model: this.model,
         mode: "auto",
         thinkingEnabled: false,
+        autoThinkingEnabled: true,
         reasoningEffort: "max",
         notify: undefined,
         webSearchTool: undefined,
@@ -185,13 +186,7 @@ export class PiApp {
           inputCacheHitPricePerMillion: 0,
           inputCacheMissPricePerMillion: 0,
         },
-        autoSwitch: {
-          enabled: true,
-          maxPaybackRounds: 8,
-          estimatedOutputPerRound: 8000,
-          estimatedInputPerRound: 500,
-          cacheHitRate: 0.5,
-        },
+
       };
     }
 
@@ -893,21 +888,18 @@ export class PiApp {
         break;
       }
 
-      case "autoSwitch": {
-        const newEnabled = !this.settings.autoSwitch?.enabled;
-        updateModeInSettings("auto");
-        if (this.settings.autoSwitch) {
-          this.settings.autoSwitch.enabled = newEnabled;
-        }
-        this.addMessage("assistant", `自动切换模型: ${newEnabled ? "开启" : "关闭"}`);
-        this.renderChat();
-        break;
-      }
-
       case "verbose": {
         this.verboseMode = !this.verboseMode;
         updateVerboseModeInSettings(this.verboseMode);
         this.addMessage("assistant", `详细模式: ${this.verboseMode ? "开启" : "关闭"}`);
+        this.renderChat();
+        break;
+      }
+
+      case "autoThinking": {
+        const newEnabled = !this.settings.autoThinkingEnabled;
+        this.settings.autoThinkingEnabled = newEnabled;
+        this.addMessage("assistant", `智能思考模式: ${newEnabled ? "开启" : "关闭"}（思考模式关闭时自动判断是否需要开启）`);
         this.renderChat();
         break;
       }
@@ -1345,6 +1337,7 @@ export class PiApp {
     model: string;
     baseURL: string;
     thinkingEnabled: boolean;
+    autoThinkingEnabled: boolean;
     reasoningEffort: "high" | "max";
     notify?: string;
     webSearchTool?: string;
@@ -1368,6 +1361,7 @@ export class PiApp {
         model: resolved.model,
         baseURL: resolved.baseURL,
         thinkingEnabled: resolved.thinkingEnabled,
+        autoThinkingEnabled: resolved.autoThinkingEnabled,
         reasoningEffort: resolved.reasoningEffort,
         notify: resolved.notify,
         webSearchTool: resolved.webSearchTool,
@@ -1387,6 +1381,7 @@ export class PiApp {
       model: resolved.model,
       baseURL: resolved.baseURL,
       thinkingEnabled: resolved.thinkingEnabled,
+      autoThinkingEnabled: resolved.autoThinkingEnabled,
       reasoningEffort: resolved.reasoningEffort,
       notify: resolved.notify,
       webSearchTool: resolved.webSearchTool,

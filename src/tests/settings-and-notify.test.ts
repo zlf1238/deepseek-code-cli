@@ -140,61 +140,6 @@ test("resolveSettings defaults invalid reasoning effort to max", () => {
   assert.equal(resolved.reasoningEffort, "max");
 });
 
-test("resolveSettings applies autoSwitch config with defaults", () => {
-  const resolved = resolveSettings(
-    {
-      env: { MODEL: "deepseek-v4-pro" },
-      autoSwitch: {
-        maxPaybackRounds: 12,
-        estimatedOutputPerRound: 3000,
-      }
-    },
-    {
-      model: "default-model",
-      baseURL: "https://default.example.com"
-    }
-  );
-
-  assert.equal(resolved.autoSwitch.maxPaybackRounds, 12);
-  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 3000);
-});
-
-test("resolveSettings defaults autoSwitch when absent", () => {
-  const resolved = resolveSettings(
-    {},
-    {
-      model: "default-model",
-      baseURL: "https://default.example.com"
-    }
-  );
-
-  assert.equal(resolved.autoSwitch.maxPaybackRounds, 8);
-  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 8000);
-  assert.equal(resolved.autoSwitch.estimatedInputPerRound, 500);
-  assert.equal(resolved.autoSwitch.cacheHitRate, 0.5);
-  assert.equal(resolved.mode, "auto");
-});
-
-test("resolveSettings ignores invalid autoSwitch values", () => {
-  const resolved = resolveSettings(
-    {
-      autoSwitch: {
-        maxPaybackRounds: -5,
-        estimatedOutputPerRound: 0,
-      }
-    },
-    {
-      model: "default-model",
-      baseURL: "https://default.example.com"
-    }
-  );
-
-  assert.equal(resolved.autoSwitch.maxPaybackRounds, 8);
-  assert.equal(resolved.autoSwitch.estimatedOutputPerRound, 8000);
-  assert.equal(resolved.autoSwitch.estimatedInputPerRound, 500);
-  assert.equal(resolved.autoSwitch.cacheHitRate, 0.5);
-});
-
 test("formatDurationSeconds preserves sub-second precision and trims trailing zeros", () => {
   assert.equal(formatDurationSeconds(0), "0");
   assert.equal(formatDurationSeconds(1250), "1");

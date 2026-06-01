@@ -90,6 +90,7 @@ function createContext(
       client: null,
       model: "test-model",
       thinkingEnabled: false,
+      autoThinkingEnabled: false,
       webSearchTool: options.webSearchTool
     }),
     onProcessStart: options.onProcessStart,

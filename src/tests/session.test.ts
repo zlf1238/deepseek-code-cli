@@ -31,7 +31,8 @@ test("SessionManager preserves structured system content when building OpenAI me
     createOpenAIClient: () => ({
       client: null,
       model: "test-model",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -80,7 +81,8 @@ test("SessionManager preserves empty reasoning content on assistant tool calls",
     createOpenAIClient: () => ({
       client: null,
       model: "test-model",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -124,7 +126,8 @@ test("SessionManager repairs legacy thinking tool calls missing reasoning conten
     createOpenAIClient: () => ({
       client: null,
       model: "test-model",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -174,7 +177,8 @@ test("SessionManager replays normal assistant messages with reasoning content in
     createOpenAIClient: () => ({
       client: null,
       model: "test-model",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -447,7 +451,8 @@ test("SessionManager streams chat completions and counts reasoning progress", as
       client: client as any,
       model: "test-model",
       baseURL: "https://api.deepseek.com",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -537,7 +542,8 @@ test("SessionManager treats OpenAI APIUserAbortError as interrupted", async () =
       client: client as any,
       model: "test-model",
       baseURL: "https://api.deepseek.com",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -771,6 +777,7 @@ function createSessionManager(projectRoot: string, machineId: string): SessionMa
       model: "test-model",
       baseURL: "https://api.deepseek.com",
       thinkingEnabled: false,
+      autoThinkingEnabled: false,
       machineId
     }),
     getResolvedSettings: () => ({}),
@@ -798,7 +805,8 @@ function createMockedClientSessionManager(projectRoot: string, responses: unknow
       client: client as any,
       model: "test-model",
       baseURL: "https://api.deepseek.com",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,
@@ -813,7 +821,8 @@ function createMockedClientSessionManagerWithClient(projectRoot: string, client:
       client: client as any,
       model: "test-model",
       baseURL: "https://api.deepseek.com",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     }),
     getResolvedSettings: () => ({}),
     renderMarkdown: (text) => text,

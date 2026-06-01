@@ -5,30 +5,9 @@ import {
   DEEPSEEK_V4_FLASH,
   DEEPSEEK_V4_PRO_PRICING,
   DEEPSEEK_V4_FLASH_PRICING,
-  selectModelByPrice,
   getContextWindowCapacity,
   defaultsToThinkingMode,
 } from "../model-capabilities";
-
-// ═══════════════════════════════════════════════
-// selectModelByPrice: no-op（主循环固定模型）
-// ═══════════════════════════════════════════════
-
-test("selectModelByPrice always returns primaryModel", () => {
-  // 无论任何参数，始终返回 primaryModel
-  const ctx = {} as Record<string, unknown>;
-  
-  assert.equal(selectModelByPrice(DEEPSEEK_V4_PRO, true, ctx).model, DEEPSEEK_V4_PRO);
-  assert.equal(selectModelByPrice(DEEPSEEK_V4_PRO, false, ctx).model, DEEPSEEK_V4_PRO);
-  assert.equal(selectModelByPrice(DEEPSEEK_V4_FLASH, true, ctx).model, DEEPSEEK_V4_FLASH);
-  assert.equal(selectModelByPrice("other-model", true, ctx).model, "other-model");
-});
-
-test("selectModelByPrice reason reflects no-switch strategy", () => {
-  const result = selectModelByPrice(DEEPSEEK_V4_PRO, true, {});
-  assert.ok(result.reason.includes("不做切换"));
-  assert.ok(Number.isNaN(result.paybackRounds));
-});
 
 // ═══════════════════════════════════════════════
 // 定价数据

@@ -28,19 +28,6 @@ export type PricingConfig = {
   inputCacheMissPricePerMillion?: number;
 };
 
-export type AutoSwitchConfig = {
-  /** 是否启用价格感知模型自动切换（默认 true） */
-  enabled?: boolean;
-  /** 最大回本轮数（默认 8），设置为 0 可禁止切换到 Flash（需 enabled=true） */
-  maxPaybackRounds?: number;
-  /** 预估每轮 output token 数（默认 8000），用于计算 roundSaving */
-  estimatedOutputPerRound?: number;
-  /** 预估每轮 new input token 数（默认 500），用于计算 input 侧节省 */
-  estimatedInputPerRound?: number;
-  /** 缓存命中率估算 0-1（默认 0.5），长会话建议 0.8+；影响预期输入价格计算 */
-  cacheHitRate?: number;
-};
-
 /** 模型使用模式：pro = 仅用 Pro，flash = 仅用 Flash，auto = 双向自动切换。 */
 export type ModelMode = "pro" | "flash" | "auto";
 
@@ -54,27 +41,20 @@ export type GitnexusConfig = {
 };
 
 export type DeepcodingSettings = {
-  /** 模型模式，优先级高于 env.MODEL + autoSwitch 组合配置。 */
+  /** 模型模式，优先级高于 env.MODEL 配置。 */
   mode?: ModelMode;
   env?: DeepcodingEnv;
   models?: Record<string, ModelOverride>;
   thinkingEnabled?: boolean;
+  /** 思考模式关闭时，是否自动判断问题复杂度并开启（默认 true） */
+  autoThinkingEnabled?: boolean;
   reasoningEffort?: ReasoningEffort;
   /** 是否展示详细模式：包括思考过程（reasoning_content）和所有工具调用历史。 */
   verboseMode?: boolean;
   notify?: string;
   webSearchTool?: string;
   pricing?: PricingConfig;
-  autoSwitch?: AutoSwitchConfig;
   gitnexus?: GitnexusConfig;
-};
-
-export type ResolvedAutoSwitchConfig = {
-  enabled: boolean;
-  maxPaybackRounds: number;
-  estimatedOutputPerRound: number;
-  estimatedInputPerRound: number;
-  cacheHitRate: number;
 };
 
 export type ResolvedDeepcodingSettings = {
@@ -83,34 +63,15 @@ export type ResolvedDeepcodingSettings = {
   model: string;
   mode: ModelMode;
   thinkingEnabled: boolean;
+  autoThinkingEnabled: boolean;
   reasoningEffort: ReasoningEffort;
   notify?: string;
   webSearchTool?: string;
   pricing: Required<PricingConfig>;
-  autoSwitch: ResolvedAutoSwitchConfig;
 };
 
 function resolveReasoningEffort(value: unknown): ReasoningEffort {
   return value === "high" || value === "max" ? value : "max";
-}
-
-function resolveAutoSwitchConfig(settings: DeepcodingSettings | null | undefined): ResolvedAutoSwitchConfig {
-  const raw = settings?.autoSwitch;
-  // enabled 默认为 true；显式设为 false 则完全禁用自动切换
-  const enabled = raw?.enabled !== false;
-  // maxPaybackRounds=0 表示"不切换"（需 enabled=true）；<0 或未提供则默认 8
-  const maxPaybackRounds = (typeof raw?.maxPaybackRounds === "number" && raw.maxPaybackRounds >= 0)
-    ? raw.maxPaybackRounds : 8;
-  // Flash 自动切换时启用思考模式，output token 介于纯 Flash 和 Pro 之间，默认 8000
-  const estimatedOutputPerRound = (typeof raw?.estimatedOutputPerRound === "number" && raw.estimatedOutputPerRound > 0)
-    ? raw.estimatedOutputPerRound : 8000;
-  // 每轮新增 input token 估算，默认 500
-  const estimatedInputPerRound = (typeof raw?.estimatedInputPerRound === "number" && raw.estimatedInputPerRound > 0)
-    ? raw.estimatedInputPerRound : 500;
-  // 缓存命中率 0-1，默认保守估计 0.5；长会话可上调至 0.8+
-  const cacheHitRate = (typeof raw?.cacheHitRate === "number" && raw.cacheHitRate >= 0 && raw.cacheHitRate <= 1)
-    ? raw.cacheHitRate : 0.5;
-  return { enabled, maxPaybackRounds, estimatedOutputPerRound, estimatedInputPerRound, cacheHitRate };
 }
 
 /**
@@ -124,40 +85,26 @@ function resolveMode(settings: DeepcodingSettings | null | undefined): ModelMode
 }
 
 /**
- * 根据 mode 覆写 ResolvedDeepcodingSettings 中的 model 和 autoSwitch。
+ * 根据 mode 覆写 ResolvedDeepcodingSettings 中的 model。
  *
- * ┌──────────┬────────────────┬─────────────────────────────────┐
- * │ mode     │ 实际 model     │ autoSwitch.enabled               │
- * ├──────────┼────────────────┼─────────────────────────────────┤
- * │ "pro"    │ deepseek-v4-pro│ false（永不切到 Flash）          │
- * │ "flash"  │ deepseek-v4-flash│ false（永不用 Pro）            │
- * │ "auto"   │ 保持解析结果    │ 保持原有值（默认 true）          │
- * │ "auto" + │ 保持 Flash      │ false（用户选了 Flash 就不切）  │
- * │   MODEL=flash │           │                                 │
- * └──────────┴────────────────┴─────────────────────────────────┘
+ * ┌──────────┬────────────────┐
+ * │ mode     │ 实际 model     │
+ * ├──────────┼────────────────┤
+ * │ "pro"    │ deepseek-v4-pro│
+ * │ "flash"  │ deepseek-v4-flash│
+ * │ "auto"   │ 保持解析结果    │
+ * └──────────┴────────────────┘
  */
 function applyModeOverrides(resolved: ResolvedDeepcodingSettings): ResolvedDeepcodingSettings {
-  const { model, autoSwitch, mode } = resolved;
+  const { model, mode } = resolved;
 
   switch (mode) {
     case "pro":
-      return {
-        ...resolved,
-        model: DEEPSEEK_V4_PRO,
-        autoSwitch: { ...autoSwitch, enabled: false },
-      };
+      return { ...resolved, model: DEEPSEEK_V4_PRO };
     case "flash":
-      return {
-        ...resolved,
-        model: DEEPSEEK_V4_FLASH,
-        autoSwitch: { ...autoSwitch, enabled: false },
-      };
+      return { ...resolved, model: DEEPSEEK_V4_FLASH };
     case "auto":
     default:
-      // 用户显式将 env.MODEL 设为 Flash 时，保持不切换回 Pro
-      if (model === DEEPSEEK_V4_FLASH) {
-        return { ...resolved, autoSwitch: { ...autoSwitch, enabled: false } };
-      }
       return resolved;
   }
 }
@@ -254,11 +201,11 @@ export function resolveSettings(
     model,
     mode: resolveMode(settings),
     thinkingEnabled: resolveThinkingEnabled(settings, model),
+    autoThinkingEnabled: settings?.autoThinkingEnabled !== false,
     reasoningEffort: resolveReasoningEffort(settings?.reasoningEffort),
     notify: notify || undefined,
     webSearchTool: webSearchTool || undefined,
     pricing,
-    autoSwitch: resolveAutoSwitchConfig(settings)
   });
 }
 

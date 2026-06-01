@@ -28,7 +28,8 @@ function createContext(projectRoot: string): ToolExecutionContext {
     createOpenAIClient: () => ({
       client: null,
       model: "test-model",
-      thinkingEnabled: false
+      thinkingEnabled: false,
+      autoThinkingEnabled: false
     })
   };
 }
