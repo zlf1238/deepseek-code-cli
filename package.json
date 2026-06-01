@@ -22,7 +22,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p ./ --noEmit",
-    "bundle": "esbuild ./src/cli.tsx --bundle --platform=node --format=cjs --target=node18 --outfile=dist/cli.cjs --banner:js=\"#!/usr/bin/env node\" --jsx=automatic --jsx-import-source=react --packages=external",
+    "bundle": "esbuild ./src/cli.tsx --bundle --platform=node --format=cjs --target=node18 --outfile=dist/cli.cjs --banner:js=\"#!/usr/bin/env node\" --packages=external",
     "build": "npm run typecheck && npm run bundle && node -e \"process.platform!=='win32'&&require('fs').chmodSync('dist/cli.cjs','755')\"",
     "test": "tsx --test src/tests/*.test.ts",
     "test:single": "tsx --test",
@@ -39,10 +39,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
-    "@types/react": "^17.0.2",
     "esbuild": "^0.25.12",
-    "ink": "^3.2.0",
-    "react": "^17.0.2",
     "tsx": "^4.21.0",
     "typescript": "^5.4.5"
   }

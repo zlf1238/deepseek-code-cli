@@ -1,8 +1,6 @@
-import React from "react";
-import { render } from "ink";
-import { App } from "./ui/App";
-import { startPiTui } from "./pi-tui-entry";
-import { checkForNpmUpdate, promptForPendingUpdate, type PackageInfo } from "./updateCheck";
+/** deepseek-code CLI 入口 —— 使用 pi TUI 差分渲染引擎 */
+import { PiApp } from "./ui/PiApp";
+import { promptForPendingUpdate, checkForNpmUpdate, type PackageInfo } from "./updateCheck";
 
 const args = process.argv.slice(2);
 const packageInfo = readPackageInfo();
@@ -46,8 +44,6 @@ if (args.includes("--help") || args.includes("-h")) {
   process.exit(0);
 }
 
-const projectRoot = process.cwd();
-
 if (!process.stdin.isTTY) {
   process.stderr.write(
     "deepseek-code requires an interactive terminal (TTY). " +
@@ -59,26 +55,14 @@ if (!process.stdin.isTTY) {
 void main();
 
 async function main(): Promise<void> {
-  const updatePromptResult = await promptForPendingUpdate(packageInfo);
+  // 启动前检查是否有待处理更新
+  await promptForPendingUpdate(packageInfo);
 
-  // 旧 Ink 引擎回退开关：PI_INK=1 使用 Ink，否则默认使用 pi TUI
-  if (process.env.PI_INK !== "1") {
-    void updatePromptResult;
-    await startPiTui(packageInfo.version || "deepseek-code");
-    return;
-  }
+  // 后台异步检查新版本（不阻塞启动）
+  void checkForNpmUpdate(packageInfo);
 
-  const inkInstance = render(<App projectRoot={projectRoot} version={packageInfo.version} />, {
-    exitOnCtrlC: false
-  });
-
-  if (!updatePromptResult.installed) {
-    void checkForNpmUpdate(packageInfo);
-  }
-
-  inkInstance.waitUntilExit().then(() => {
-    process.exit(0);
-  });
+  const app = new PiApp(process.cwd(), packageInfo.version || "deepseek-code");
+  await app.start();
 }
 
 function readPackageInfo(): PackageInfo {

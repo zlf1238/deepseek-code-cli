@@ -1,11 +1,8 @@
 import { spawn } from "child_process";
-import React from "react";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { render, type Instance } from "ink";
 import chalk from "chalk";
-import { UpdatePrompt, type UpdatePromptChoice } from "./ui/UpdatePrompt";
 
 export type PackageInfo = {
   name: string;
@@ -123,6 +120,13 @@ export function getUpdateStatePath(): string {
   return path.join(os.homedir(), ".deepseek-code", UPDATE_STATE_FILE);
 }
 
+/** 候选更新类型（保留类型以兼容调用方） */
+type UpdatePromptChoice = "install" | "ignore-once" | "ignore-version";
+
+/**
+ * 展示更新提示（纯终端输出，不依赖 Ink）。
+ * 不再交互——仅打印提示，让用户自行执行安装命令。
+ */
 async function promptUpdateChoice({
   currentVersion,
   latestVersion,
@@ -131,29 +135,17 @@ async function promptUpdateChoice({
   currentVersion: string;
   latestVersion: string;
   installCommand: string;
-}): Promise<"install" | "ignore-once" | "ignore-version"> {
-  return new Promise<UpdatePromptChoice>((resolve) => {
-    let selected = false;
-    let instance: Instance | null = null;
-    const handleSelect = (choice: UpdatePromptChoice): void => {
-      if (selected) {
-        return;
-      }
-      selected = true;
-      resolve(choice);
-      instance?.unmount();
-    };
-
-    instance = render(
-      React.createElement(UpdatePrompt, {
-        currentVersion,
-        latestVersion,
-        installCommand,
-        onSelect: handleSelect
-      }),
-      { exitOnCtrlC: false }
-    );
-  });
+}): Promise<UpdatePromptChoice> {
+  process.stdout.write(
+    `\n${chalk.yellow("╭────────────────────────────────────────────╮")}\n` +
+    `${chalk.yellow("│")}${chalk.bold("  DeepSeek Code CLI 更新可用")}${chalk.yellow("                  │")}\n` +
+    `${chalk.yellow("│")}  当前版本: ${currentVersion.padEnd(34)}${chalk.yellow("│")}\n` +
+    `${chalk.yellow("│")}  最新版本: ${chalk.green(latestVersion.padEnd(34))}${chalk.yellow("│")}\n` +
+    `${chalk.yellow("╰────────────────────────────────────────────╯")}\n` +
+    `\n  安装命令: ${chalk.cyan(installCommand)}\n` +
+    `  手动执行上述命令更新后重启 CLI 即可。\n\n`
+  );
+  return "ignore-once";
 }
 
 async function runNpmInstallGlobal(installSpec: string): Promise<boolean> {
