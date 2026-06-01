@@ -62,6 +62,9 @@ export function usePromptHandler(deps: PromptHandlerDeps) {
       }
 
       if (submission.command === "new") {
+        // 中断旧 session 上仍在运行的异步操作，防止其回调
+        // 用旧 session 的 usage 数据覆盖 status line
+        sessionManager.interruptActiveSession();
         sessionManager.setActiveSessionId(null);
         clearTerminal();
         dispatchMessages({ type: "resetMessages" });

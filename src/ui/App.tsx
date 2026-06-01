@@ -227,6 +227,10 @@ export function App({ projectRoot, version = "" }: AppProps): React.ReactElement
         dispatchMessages({ type: "appendMessage", message });
       },
       onSessionEntryUpdated: (entry) => {
+        // 仅更新当前活跃 session 的状态行，忽略非活跃 session 的回调。
+        // 防止旧 session 的异步操作（compaction 等）在 /new 或切换 session
+        // 后用其 usage 数据覆盖 status line。
+        if (entry.id !== sessionManager.getActiveSessionId()) return;
         setStatusLine(buildStatusLine(entry, activeModelRef.current, pricingRef.current));
         setRunningProcesses(entry.processes);
         setActiveStatus(entry.status);
