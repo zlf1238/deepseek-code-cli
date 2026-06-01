@@ -31,7 +31,7 @@ export function formatSessionTitle(value: string, max = 70): string {
   return `${cleaned.slice(0, max)}…`;
 }
 
-/** 格式化时间戳（导出供 PiQuestionList / PiApp 使用） */
+/** 格式化时间戳（导出供 QuestionList / App 使用） */
 export function formatTimestamp(value: string): string {
   try {
     const date = new Date(value);
@@ -68,7 +68,7 @@ function wrapText(text: string, lineWidth: number): string[] {
 }
 
 /** pi 版本的会话选择列表 */
-export class PiSessionList implements Component {
+export class SessionList implements Component {
   private selectList: SelectList;
   private allSessions: SessionEntry[] = [];
   private mode: Mode = "browse";
@@ -317,8 +317,8 @@ export class PiSessionList implements Component {
       const paddedLabel = labelWidth >= targetWidth ? rawLabel : rawLabel + ' '.repeat(targetWidth - labelWidth);
       return {
         value: s.id,
-        label: q ? PiSessionList.highlightMatch(paddedLabel, q) : paddedLabel,
-        description: q ? PiSessionList.highlightMatch(rawDesc, q) : rawDesc,
+        label: q ? SessionList.highlightMatch(paddedLabel, q) : paddedLabel,
+        description: q ? SessionList.highlightMatch(rawDesc, q) : rawDesc,
       };
     });
 

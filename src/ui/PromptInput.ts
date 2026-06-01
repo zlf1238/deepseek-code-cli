@@ -20,7 +20,7 @@ export interface PromptSubmission {
   slashCommand?: { kind: string; label: string };
 }
 
-export class PiPromptInput implements Component, Focusable {
+export class PromptInput implements Component, Focusable {
   private input: Input;
   private history: string[] = [];
   private historyIndex = -1;

@@ -24,7 +24,7 @@ const theme: SelectListTheme = {
   noMatch: Theme.dimText,
 };
 
-export class PiAskUserQuestionPrompt implements Component {
+export class AskUserQuestionPrompt implements Component {
   private questions: AskUserQuestionItem[] = [];
   private questionIndex = 0;
   private cursorIndex = 0;

@@ -12,14 +12,14 @@ import { Text } from "../tui/components/text";
 import { Spacer } from "../tui/components/spacer";
 import { Box } from "../tui/components/box";
 import { ProcessTerminal } from "../tui/terminal";
-import { createWelcomeScreen } from "./PiWelcomeScreen";
-import { createMessageView, type MessageRole } from "./PiMessageView";
-import { PiPromptInput, type PromptSubmission, type SlashContext } from "./PiPromptInput";
-import { PiSessionList, formatTimestamp } from "./PiSessionList";
-import { PiQuestionList, type QuestionItem } from "./PiQuestionList";
-import { PiAskUserQuestionPrompt } from "./PiAskUserQuestionPrompt";
-import { createSlashCommandList } from "./PiSlashCommandList";
-import { createHelpOverlay } from "./PiHelpOverlay";
+import { createWelcomeScreen } from "./WelcomeScreen";
+import { createMessageView, type MessageRole } from "./MessageView";
+import { PromptInput, type PromptSubmission, type SlashContext } from "./PromptInput";
+import { SessionList, formatTimestamp } from "./SessionList";
+import { QuestionList, type QuestionItem } from "./QuestionList";
+import { AskUserQuestionPrompt } from "./AskUserQuestionPrompt";
+import { createSlashCommandList } from "./SlashCommandList";
+import { createHelpOverlay } from "./HelpOverlay";
 import { Theme } from "../tui/ThemeAdapter";
 import { buildStatusLine } from "./statusLine";
 import { buildLoadingText } from "./loadingText";
@@ -83,7 +83,7 @@ interface Message {
   };
 }
 
-export class PiApp {
+export class App {
   private tui: TUI;
   private terminal: ProcessTerminal;
   private root: Container;
@@ -91,12 +91,12 @@ export class PiApp {
   /** 进入 question-list 前所在的视图（Esc 时据此决定返回 chat 还是 session-list） */
   private previousView: View = "welcome";
   private messages: Message[] = [];
-  private promptInput: PiPromptInput;
-  private sessionList: PiSessionList;
-  private questionList: PiQuestionList;
+  private promptInput: PromptInput;
+  private sessionList: SessionList;
+  private questionList: QuestionList;
   /** Alt+Q 或 /resume 选中会话后暂存，供 question-list 使用 */
   private pendingSessionId: string | null = null;
-  private askPrompt: PiAskUserQuestionPrompt;
+  private askPrompt: AskUserQuestionPrompt;
   private settings!: ResolvedDeepcodingSettings;
   private skills: SkillInfo[] = [];
   private model: string;
@@ -148,12 +148,12 @@ export class PiApp {
     this.tui = new TUI(this.terminal);
     this.root = new Container();
 
-    this.promptInput = new PiPromptInput();
+    this.promptInput = new PromptInput();
     const listMaxVisible = Math.max(5, this.terminal.rows - 6);
     const listMaxWidth = this.terminal.columns;
-    this.sessionList = new PiSessionList(listMaxVisible, listMaxWidth);
-    this.questionList = new PiQuestionList(listMaxVisible, listMaxWidth);
-    this.askPrompt = new PiAskUserQuestionPrompt();
+    this.sessionList = new SessionList(listMaxVisible, listMaxWidth);
+    this.questionList = new QuestionList(listMaxVisible, listMaxWidth);
+    this.askPrompt = new AskUserQuestionPrompt();
 
     this.setupCallbacks();
   }
@@ -1249,7 +1249,7 @@ export class PiApp {
       isStreamDelta: msg.meta?.isStreamDelta,
     };
 
-    // 步骤指示器用特殊内容（PiMessageView 会加 ● 前缀）
+    // 步骤指示器用特殊内容（MessageView 会加 ● 前缀）
     if (msg.meta?.isStepIndicator && msg.meta.stepDescription) {
       this.addMessage(role, msg.meta.stepDescription, meta, msg.id);
     } else {

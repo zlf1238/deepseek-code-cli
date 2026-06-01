@@ -59,7 +59,7 @@ function wrapText(text: string, lineWidth: number): string[] {
 }
 
 /** pi 版本的提问选择列表 */
-export class PiQuestionList implements Component {
+export class QuestionList implements Component {
   private selectList: SelectList;
   private items: QuestionItem[] = [];
   private onSelectCb?: (messageIndex: number) => void;

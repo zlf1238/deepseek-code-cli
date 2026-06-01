@@ -88,7 +88,7 @@ export function parseSGRMouseEvent(data: string): ScrollMouseEvent | null {
   return { type, button, x: cx, y: cy, shift, meta, ctrl };
 }
 
-export class PiScrollContainer implements Component {
+export class ScrollContainer implements Component {
   private children: Component[] = [];
   private _viewportHeight: number;
   /** 滚动容器在屏幕上的起始行（0-based），由外部设置 */
