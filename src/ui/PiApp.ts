@@ -1216,6 +1216,18 @@ export class PiApp {
     if (msg.role === "system") return;
 
     const content = typeof msg.content === "string" ? msg.content : "";
+
+    // 提取 messageParams 中的推理内容（buildAssistantMessage 存入了但 meta 里没标记）
+    const msgParams = msg.messageParams as Record<string, unknown> | null | undefined;
+    const reasoning = typeof msgParams?.reasoning_content === "string"
+      ? (msgParams.reasoning_content as string).trim()
+      : "";
+
+    // 如果有推理内容且当前消息不是 asThinking（最终回答场景），先发思考消息
+    if (reasoning && !msg.meta?.asThinking && !msg.meta?.isStreamStart && !msg.meta?.isStreamDelta) {
+      this.addMessage("assistant", reasoning, { asThinking: true });
+    }
+
     if (!content.trim() && !msg.meta?.isStepIndicator) return;
 
     const role: MessageRole =
@@ -1281,7 +1293,26 @@ export class PiApp {
       }
     }
 
-    this.messages = filtered.map((m) => ({
+    this.messages = filtered.flatMap((m) => {
+        // 提取 messageParams 中的推理内容（buildAssistantMessage 存入了但 meta 里没标记）
+        const msgParams = m.messageParams as Record<string, unknown> | null | undefined;
+        const reasoning = typeof msgParams?.reasoning_content === "string"
+          ? (msgParams.reasoning_content as string).trim()
+          : "";
+
+        const results: Message[] = [];
+
+        // 如果有推理内容且不是 asThinking，先插入思考消息
+        if (reasoning && !m.meta?.asThinking) {
+          results.push({
+            role: "assistant" as MessageRole,
+            content: reasoning,
+            timestamp: Date.parse(m.createTime) || Date.now(),
+            meta: { asThinking: true },
+          });
+        }
+
+        results.push({
         role:
           m.role === "assistant" ? "assistant" as MessageRole
           : m.role === "tool" ? "assistant" as MessageRole
@@ -1302,7 +1333,10 @@ export class PiApp {
           isToolGroup: m.meta?.isToolGroup,
           isJumpTarget: (m.meta as Record<string, unknown> | undefined)?.["isJumpTarget"] as boolean | undefined,
         },
-      }));
+        });
+
+        return results;
+      });
   }
 
   /** 创建 OpenAI 客户端 */
