@@ -78,6 +78,8 @@ interface Message {
     isStreamStart?: boolean;
     /** 流式输出增量更新标记 */
     isStreamDelta?: boolean;
+    /** 提问列表跳转锚点标记 */
+    isJumpTarget?: boolean;
   };
 }
 
@@ -1246,8 +1248,8 @@ export class PiApp {
     if (sinceMessageIndex !== undefined && sinceMessageIndex > 0 && sinceMessageIndex < filtered.length) {
       const skippedCount = sinceMessageIndex;
       filtered = filtered.slice(sinceMessageIndex);
-      // 在开头插入省略提示
       const now = new Date().toISOString();
+      // 在开头插入省略提示
       filtered = [{
         id: `skip-hint-${Date.now()}`,
         sessionId,
@@ -1261,6 +1263,11 @@ export class PiApp {
         updateTime: now,
         meta: { isSummary: true },
       }, ...filtered];
+      // 标记第一条真实消息为跳转锚点（filtered[0] 是省略提示，filtered[1] 是目标提问）
+      if (filtered.length > 1) {
+        const target = { ...filtered[1], meta: { ...(filtered[1].meta as Record<string, unknown> || {}), isJumpTarget: true } } as typeof filtered[1];
+        filtered[1] = target;
+      }
     }
 
     this.messages = filtered.map((m) => ({
@@ -1282,6 +1289,7 @@ export class PiApp {
           paramsMd: m.meta?.paramsMd,
           resultMd: m.meta?.resultMd,
           isToolGroup: m.meta?.isToolGroup,
+          isJumpTarget: (m.meta as Record<string, unknown> | undefined)?.["isJumpTarget"] as boolean | undefined,
         },
       }));
   }

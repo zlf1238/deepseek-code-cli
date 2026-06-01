@@ -9,6 +9,7 @@ import type { Container } from "../tui/tui";
 import { Box } from "../tui/components/box";
 import { renderMarkdown } from "./markdown";
 import { Theme, type ColorFn } from "../tui/ThemeAdapter";
+import { visibleWidth } from "../tui/utils";
 
 /** 消息角色 */
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -24,6 +25,8 @@ export type MessageMeta = {
   resultMd?: string;
   statusColor?: string;
   isToolGroup?: boolean;
+  /** 提问列表跳转锚点标记 */
+  isJumpTarget?: boolean;
 };
 
 /** 创建消息视图组件 */
@@ -34,6 +37,12 @@ export function createMessageView(
   meta?: MessageMeta,
 ): Container {
   const box = new Box(0, 0);
+
+  // ── 跳转锚点：从提问列表选中后跳转至此，显示醒目标记 ──
+  if (meta?.isJumpTarget) {
+    const marker = renderJumpAnchor(width);
+    box.addChild(new Text(marker, 0, 0));
+  }
 
   if (!content.trim() && !meta?.isStepIndicator) {
     return box;
@@ -200,4 +209,14 @@ function isTableBorderLine(line: string): boolean {
   const visible = line.replace(STRIP_ANSI_RE, "");
   const first = visible[0];
   return first !== undefined && TABLE_LINE_CHARS.has(first);
+}
+
+/** 渲染跳转锚点标记：醒目的分隔线 + 定位提示 */
+function renderJumpAnchor(width: number): string {
+  const w = Math.max(30, width - 4);
+  const text = " 🎯 跳转至此 (Alt+Q 选中) ";
+  const sideLen = Math.max(1, Math.floor((w - visibleWidth(text)) / 2));
+  const left = "━".repeat(sideLen);
+  const right = "━".repeat(Math.max(0, w - visibleWidth(text) - sideLen));
+  return Theme.boldText(Theme.cyanText(`${left}${text}${right}`));
 }
