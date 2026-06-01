@@ -958,11 +958,6 @@ export class TUI extends Container {
 		let prevViewportTop = heightChanged ? Math.max(0, previousBufferLength - height) : this.previousViewportTop;
 		let viewportTop = prevViewportTop;
 		let hardwareCursorRow = this.hardwareCursorRow;
-		const computeLineDiff = (targetRow: number): number => {
-			const currentScreenRow = hardwareCursorRow - prevViewportTop;
-			const targetScreenRow = targetRow - viewportTop;
-			return targetScreenRow - currentScreenRow;
-		};
 
 		// Render all components to get new lines
 		let newLines = this.render(width);
@@ -1095,10 +1090,9 @@ export class TUI extends Container {
 					fullRender(true);
 					return;
 				}
-				const lineDiff = computeLineDiff(targetRow);
-				if (lineDiff > 0) buffer += `\x1b[${lineDiff}B`;
-				else if (lineDiff < 0) buffer += `\x1b[${-lineDiff}A`;
-				buffer += "\r";
+				const screenRow2 = targetRow - viewportTop;
+				buffer += `\x1b[${screenRow2 + 1};1H`;
+				hardwareCursorRow = targetRow;
 				// Clear extra lines without scrolling
 				const extraLines = this.previousLines.length - newLines.length;
 				if (extraLines > height) {
@@ -1157,15 +1151,10 @@ export class TUI extends Container {
 			hardwareCursorRow = moveTargetRow;
 		}
 
-		// Move cursor to first changed line (use hardwareCursorRow for actual position)
-		const lineDiff = computeLineDiff(moveTargetRow);
-		if (lineDiff > 0) {
-			buffer += `\x1b[${lineDiff}B`; // Move down
-		} else if (lineDiff < 0) {
-			buffer += `\x1b[${-lineDiff}A`; // Move up
-		}
-
-		buffer += appendStart ? "\r\n" : "\r"; // Move to column 0
+		// 用绝对定位替代相对移动，避免 hardwareCursorRow 漂移导致写错行
+		const screenRow = moveTargetRow - viewportTop;
+		buffer += `\x1b[${screenRow + 1};1H`;
+		hardwareCursorRow = moveTargetRow;
 
 		// Only render changed lines (firstChanged to lastChanged), not all lines to end
 		// This reduces flicker when only a single line changes (e.g., spinner animation)
@@ -1226,7 +1215,6 @@ export class TUI extends Container {
 				`viewportTop: ${viewportTop}`,
 				`cursorRow: ${this.cursorRow}`,
 				`height: ${height}`,
-				`lineDiff: ${lineDiff}`,
 				`hardwareCursorRow: ${hardwareCursorRow}`,
 				`renderEnd: ${renderEnd}`,
 				`finalCursorRow: ${finalCursorRow}`,
