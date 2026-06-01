@@ -167,6 +167,9 @@ export type SessionEntry = {
   usageByModel?: Record<string, unknown>;
   activeTokens: number;
   compactThreshold: number;
+  /** 创建时固化的思考模式配置，之后不再随全局设置变更 */
+  thinkingEnabled: boolean;
+  reasoningEffort: "high" | "max";
   createTime: string;
   updateTime: string;
   processes: Map<string, { startTime: string; command: string }> | null;  // {pid: {startTime, command}}
@@ -810,6 +813,8 @@ The candidate skills are as follows:\n\n`;
       usage: null,
       activeTokens: 0,
       compactThreshold: 0,
+      thinkingEnabled: false,  // 将在 append 后通过 updateSessionEntryAsync 固化
+      reasoningEffort: "max" as const,  // 同上
       createTime: now,
       updateTime: now,
       processes: null
@@ -832,8 +837,9 @@ The candidate skills are as follows:\n\n`;
     await this.saveSessionsIndexAsync(index);
     await this.removeSessionMessagesAsync(droppedEntries.map((item) => item.id));
 
-    // 提前获取主模型，用于选择对应模型优化的系统提示词
-    const primaryModel = this.createOpenAIClient().model;
+    // 提前获取主模型和思考配置，固化到会话条目（类似系统提示词，创建后永久不变）
+    const primary = this.createOpenAIClient();
+    const primaryModel = primary.model;
     let systemPrompt = getSystemPrompt(this.projectRoot, this.getPromptToolOptions());
 
     // AGENTS.md / REASONIX.md 烘焙进 system prompt 字符串，而非独立 system 消息。
@@ -851,6 +857,13 @@ The candidate skills are as follows:\n\n`;
 
     // Skills are now loaded on-demand via the SkillLoad tool (see tools/executor.ts).
     // The skills index is already embedded in the system prompt via getSkillsIndex().
+
+    // 固化思考模式配置到会话条目（创建后永久不变，类似系统提示词）
+    await this.updateSessionEntryAsync(sessionId, (entry) => ({
+      ...entry,
+      thinkingEnabled: primary.thinkingEnabled,
+      reasoningEffort: primary.reasoningEffort ?? "max",
+    }));
 
     this.activeSessionId = sessionId;
     await this.activateSession(sessionId, controller);
@@ -934,11 +947,17 @@ The candidate skills are as follows:\n\n`;
       let lastToolName: string | undefined;
       let currentClient = primary.client;
       let currentModel = primaryModel;
+
+      // 使用会话创建时固化的思考配置（旧会话无此字段则回退到全局设置）
+      const session = this.getSession(sessionId);
+      const effectiveThinkingEnabled = session?.thinkingEnabled ?? primary.thinkingEnabled;
+      const effectiveReasoningEffort = session?.reasoningEffort ?? primary.reasoningEffort;
+
       let currentThinkingEnabled = await this.resolveEffectiveThinking(
-        primary, sessionId
+        primary, sessionId, effectiveThinkingEnabled
       );
       let currentBaseURL = primary.baseURL;
-      let currentReasoningEffort = primary.reasoningEffort;
+      let currentReasoningEffort = effectiveReasoningEffort;
       // 主循环不做模型切换，统一使用当前模型处理所有任务
 
       for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -2227,9 +2246,10 @@ The candidate skills are as follows:\n\n`;
   private async resolveEffectiveThinking(
     primary: ReturnType<CreateOpenAIClient>,
     sessionId: string,
+    sessionThinkingEnabled: boolean,
   ): Promise<boolean> {
-    // 用户已手动开启 → 直接使用
-    if (primary.thinkingEnabled) return true;
+    // 会话创建时已固化开启 → 直接使用（避免参数切换污染 prefix-cache）
+    if (sessionThinkingEnabled) return true;
     // 智能思考关闭 → 保持关闭
     if (!primary.autoThinkingEnabled) return false;
     // 没有客户端 → 无法判断
@@ -2501,6 +2521,8 @@ The candidate skills are as follows:\n\n`;
         : undefined,
       activeTokens: typeof value.activeTokens === "number" ? value.activeTokens : 0,
       compactThreshold: typeof value.compactThreshold === "number" ? value.compactThreshold : 0,
+      thinkingEnabled: typeof value.thinkingEnabled === "boolean" ? value.thinkingEnabled : false,
+      reasoningEffort: value.reasoningEffort === "high" || value.reasoningEffort === "max" ? value.reasoningEffort : "max",
       createTime: typeof value.createTime === "string" ? value.createTime : new Date().toISOString(),
       updateTime: typeof value.updateTime === "string" ? value.updateTime : new Date().toISOString(),
       processes: this.deserializeProcesses(value.processes)

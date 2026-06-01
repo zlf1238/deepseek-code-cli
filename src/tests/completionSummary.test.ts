@@ -61,6 +61,8 @@ function makeSession(overrides: Partial<SessionEntry> = {}): SessionEntry {
     usage: null,
     activeTokens: 0,
     compactThreshold: 0,
+    thinkingEnabled: false,
+    reasoningEffort: "max" as const,
     createTime: "2026-01-01T00:00:00.000Z",
     updateTime: "2026-01-01T00:00:00.000Z",
     processes: null,
