@@ -106,15 +106,36 @@ export class PiQuestionList implements Component {
     const lines: string[] = [];
     const selItems = this.selectList.getItems();
     const idx = this.selectList.getSelectedIndex();
+
+    // 预览区固定高度，避免切换条目时列表上下跳动
+    const MIN_PREVIEW_LINES = 5;
+    const MAX_PREVIEW_LINES = 5;
+    const PREVIEW_CONTENT_LINES = MAX_PREVIEW_LINES - 1; // 标签占一行
+
     if (idx >= 0 && idx < selItems.length && idx < this.items.length) {
       const item = this.items[idx];
       const maxW = Math.max(10, width - 2);
       const raw = `#${item.displayIndex}  ${item.fullContent}`;
-      // 按可见宽度换行显示完整内容，不截断
-      const wrapped = wrapText(raw, maxW);
+
+      // 标签行
+      lines.push(Theme.dimText("  ── 提问预览 ──"));
+
+      // 按可见宽度换行显示完整内容，超出上限则截断
+      let wrapped = wrapText(raw, maxW);
+      if (wrapped.length > PREVIEW_CONTENT_LINES) {
+        wrapped = wrapped.slice(0, PREVIEW_CONTENT_LINES);
+        wrapped[PREVIEW_CONTENT_LINES - 1] += " …";
+      }
       for (const wl of wrapped) {
         lines.push(Theme.dimText(`  ${wl}`));
       }
+      // 不足时用空行补齐，保持预览区总高度固定（标签 + MIN_PREVIEW_LINES 行）
+      while (lines.length <= MIN_PREVIEW_LINES) {
+        lines.push("");
+      }
+      // 分隔线
+      const sepW = Math.min(width - 4, 30);
+      lines.push(Theme.dimText("  " + "─".repeat(sepW)));
       lines.push("");
     }
     lines.push(...this.selectList.render(width));
