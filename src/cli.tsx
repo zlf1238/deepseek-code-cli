@@ -1,5 +1,5 @@
 /** deepseek-code CLI 入口 —— 使用 pi TUI 差分渲染引擎 */
-import { PiApp } from "./ui/PiApp";
+import { App } from "./ui/App";
 import { promptForPendingUpdate, checkForNpmUpdate, type PackageInfo } from "./updateCheck";
 
 const args = process.argv.slice(2);
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   // 后台异步检查新版本（不阻塞启动）
   void checkForNpmUpdate(packageInfo);
 
-  const app = new PiApp(process.cwd(), packageInfo.version || "deepseek-code");
+  const app = new App(process.cwd(), packageInfo.version || "deepseek-code");
   await app.start();
 }
 

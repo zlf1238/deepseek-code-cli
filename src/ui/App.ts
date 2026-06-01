@@ -133,6 +133,8 @@ export class App {
   private pendingAskMessageId: string | null = null;
   /** 后台运行进程快照，用于状态行展示 */
   private runningProcesses: SessionEntry["processes"] = null;
+  /** /learn 生成的总结等待用户确认是否写入 AGENTS.md */
+  private pendingLearnConfirm = false;
   /** 内联选择菜单（/model、/thinking、/skills 的交互菜单） */
   private inlineSelectKind: "model" | "thinking" | "skills" | null = null;
   private inlineSelectItems: SelectItem[] = [];
@@ -535,7 +537,41 @@ export class App {
       return;
     }
 
-    // P3-5: 删除确认模式
+    // P3-5: /learn 确认模式
+    if (this.pendingLearnConfirm) {
+      if (data === "y" || data === "Y" || data === "\r" || data === "\n") {
+        this.pendingLearnConfirm = false;
+        // 用户确认，让 LLM 写入 AGENTS.md
+        this.addMessage("user", "用户已确认，请将之前生成的学习总结写入 AGENTS.md。如果 AGENTS.md 不存在则创建，如果已存在则在末尾追加。");
+        this.renderChat();
+        const prompt: UserPromptContent = { text: "用户已确认，请将之前生成的学习总结写入 AGENTS.md。如果 AGENTS.md 不存在则创建，如果已存在则在末尾追加。" };
+        this.errorLine = null;
+        this.setBusy(true);
+        this.sessionManager.handleUserPrompt(prompt)
+          .then(() => {
+            const sessionId = this.sessionManager.getActiveSessionId();
+            if (sessionId) this.loadMessagesFromSession(sessionId);
+            this.renderChat();
+            this.sessions = this.sessionManager.listSessions();
+          })
+          .catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.errorLine = msg;
+            this.renderChat();
+          })
+          .finally(() => {
+            this.setBusy(false);
+            this.renderChat();
+          });
+      } else {
+        this.pendingLearnConfirm = false;
+        this.addMessage("assistant", "已取消写入 AGENTS.md。");
+        this.renderChat();
+      }
+      return;
+    }
+
+    // 删除确认模式
     if (this.pendingDeleteIds) {
       if (data === "\r" || data === "\n") {
         this.executeDelete(this.pendingDeleteIds);
@@ -915,7 +951,36 @@ export class App {
         break;
       }
 
-      case "learn":
+      case "learn": {
+        // 先让 LLM 生成总结，等待用户确认后再写入 AGENTS.md
+        if (this.busy) return;
+        const learnPromptText = `/learn -- 请根据本轮对话生成学习总结，列出错误和教训。**不要写入文件**，先输出总结内容供用户确认。`;
+        this.addMessage("user", learnPromptText);
+        this.renderChat();
+        const prompt: UserPromptContent = { text: learnPromptText };
+        this.errorLine = null;
+        this.setBusy(true);
+        this.sessionManager.handleUserPrompt(prompt)
+          .then(() => {
+            const sessionId = this.sessionManager.getActiveSessionId();
+            if (sessionId) this.loadMessagesFromSession(sessionId);
+            this.addMessage("assistant", "以上是学习总结。输入 **y** 确认写入 AGENTS.md，输入 **n** 或按 Esc 取消。");
+            this.renderChat();
+            this.sessions = this.sessionManager.listSessions();
+            this.pendingLearnConfirm = true;
+          })
+          .catch((error) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.errorLine = msg;
+            this.renderChat();
+          })
+          .finally(() => {
+            this.setBusy(false);
+            this.renderChat();
+          });
+        break;
+      }
+
       case "worklog": {
         // 发送给 LLM 处理
         if (this.busy) return;

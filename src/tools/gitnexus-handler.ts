@@ -424,8 +424,9 @@ export async function handleGitnexusQuery(
 
   return withIndex(context, async () => {
     try {
+      const repoName = await getRepoName(context.projectRoot);
       const client = new GitnexusMCPOneShot(context.projectRoot);
-      const raw = await client.callTool("query", { query });
+      const raw = await client.callTool("query", { query, repo: repoName });
       const maxChars = typeof args.max_chars === "number" ? args.max_chars : 8000;
       return {
         ok: true,
@@ -450,8 +451,9 @@ export async function handleGitnexusContext(
 
   return withIndex(context, async () => {
     try {
+      const repoName = await getRepoName(context.projectRoot);
       const client = new GitnexusMCPOneShot(context.projectRoot);
-      const raw = await client.callTool("context", { name });
+      const raw = await client.callTool("context", { name, repo: repoName });
       const maxChars = typeof args.max_chars === "number" ? args.max_chars : 6000;
       return {
         ok: true,
@@ -493,6 +495,8 @@ export async function handleGitnexusImpact(
       if (direction) {
         params.direction = direction;
       }
+      const repoName = await getRepoName(context.projectRoot);
+      params.repo = repoName;
       const client = new GitnexusMCPOneShot(context.projectRoot);
       const raw = await client.callTool("impact", params);
       return { ok: true, name: "gitnexus_impact", output: raw };
@@ -508,7 +512,8 @@ export async function handleGitnexusDetectChanges(
 ): Promise<ToolExecutionResult> {
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = {};
+      const repoName = await getRepoName(context.projectRoot);
+      const params: Record<string, unknown> = { repo: repoName };
       const scope = typeof args.scope === "string" ? args.scope.trim() : "";
       if (scope) {
         params.scope = scope;
@@ -537,7 +542,8 @@ export async function handleGitnexusRename(
 
   return withIndex(context, async () => {
     try {
-      const params: Record<string, unknown> = { new_name: newName };
+      const repoName = await getRepoName(context.projectRoot);
+      const params: Record<string, unknown> = { new_name: newName, repo: repoName };
       const symbolName = typeof args.symbol_name === "string" ? args.symbol_name.trim() : "";
       if (symbolName) {
         params.symbol_name = symbolName;
