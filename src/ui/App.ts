@@ -118,6 +118,8 @@ export class App {
   private streamProgress: { phase: string; startedAt: string; estimatedTokens?: number; formattedTokens?: string } | null = null;
   /** 流式渲染防抖定时器（减少 Markdown 表格列宽抖动时的渲染频率） */
   private streamRenderTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 当前流是否已通过流式推送展示过思考过程（防止最终消息重复添加） */
+  private hasStreamedThinking = false;
 
   /** 斜杠命令菜单状态 */
   private slashItems: SlashCommandItem[] = [];
@@ -221,7 +223,10 @@ export class App {
         }
       },
       onLlmStreamProgress: (progress) => {
-        if (progress.phase === "end") {
+        if (progress.phase === "start") {
+          // 新流开始时重置思考过程流式标记
+          this.hasStreamedThinking = false;
+        } else if (progress.phase === "end") {
           this.streamProgress = null;
           // 流结束立即渲染最终帧
           if (this.streamRenderTimer) { clearTimeout(this.streamRenderTimer); this.streamRenderTimer = null; }
@@ -1288,9 +1293,17 @@ export class App {
       ? (msgParams.reasoning_content as string).trim()
       : "";
 
+    // 标记：如果是流式思考消息，记录已展示
+    if (msg.meta?.asThinking && msg.meta?.isStreamStart) {
+      this.hasStreamedThinking = true;
+    }
+
     // 如果有推理内容且当前消息不是 asThinking（最终回答场景），先发思考消息
+    // 但如果思考内容已通过流式推送到 UI，则跳过，防止重复
     if (reasoning && !msg.meta?.asThinking && !msg.meta?.isStreamStart && !msg.meta?.isStreamDelta) {
-      this.addMessage("assistant", reasoning, { asThinking: true });
+      if (!this.hasStreamedThinking) {
+        this.addMessage("assistant", reasoning, { asThinking: true });
+      }
     }
 
     if (!content.trim() && !msg.meta?.isStepIndicator) return;

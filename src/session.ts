@@ -386,6 +386,8 @@ export class SessionManager {
     sessionId?: string,
     /** 流式输出回调：每次收到文本增量时调用，用于实现打字机效果 */
     onContentDelta?: (delta: string, fullContent: string) => void,
+    /** 流式思考过程回调：每次收到推理内容增量时调用，用于实现思考过程的打字机效果 */
+    onReasoningDelta?: (delta: string, fullReasoning: string) => void,
   ): Promise<{
     choices?: Array<{ message?: Record<string, unknown> }>;
     usage?: unknown;
@@ -463,6 +465,8 @@ export class SessionManager {
           if (typeof reasoningDelta === "string") {
             reasoningContent += reasoningDelta;
             trackText(reasoningDelta);
+            // 打字机效果：思考过程逐字显示
+            onReasoningDelta?.(reasoningDelta, reasoningContent);
           }
 
           if (typeof delta.refusal === "string") {
@@ -1036,6 +1040,7 @@ The candidate skills are as follows:\n\n`;
 
         // 流式输出状态：用于实现打字机效果
         let streamMessageId: string | null = null;
+        let streamReasoningId: string | null = null;
 
         const response = await this.createChatCompletionStream(
           currentClient,
@@ -1061,6 +1066,23 @@ The candidate skills are as follows:\n\n`;
               const updateMsg = this.buildAssistantMessage(sessionId, fullContent, null);
               updateMsg.id = streamMessageId;
               updateMsg.meta = { isStreamDelta: true };
+              this.onAssistantMessage(updateMsg, true);
+            }
+          },
+          // 打字机效果：思考过程逐段推送到 UI
+          (delta, fullReasoning) => {
+            if (!streamReasoningId) {
+              // 第一次收到推理内容：发送流式开始消息
+              streamReasoningId = crypto.randomUUID();
+              const startMsg = this.buildAssistantMessage(sessionId, fullReasoning, null);
+              startMsg.id = streamReasoningId;
+              startMsg.meta = { isStreamStart: true, asThinking: true };
+              this.onAssistantMessage(startMsg, true);
+            } else {
+              // 后续增量：发送流式更新消息
+              const updateMsg = this.buildAssistantMessage(sessionId, fullReasoning, null);
+              updateMsg.id = streamReasoningId;
+              updateMsg.meta = { isStreamDelta: true, asThinking: true };
               this.onAssistantMessage(updateMsg, true);
             }
           },
