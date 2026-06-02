@@ -1,11 +1,11 @@
 {
-  "name": "@vegamo/deepseek-code-cli",
+  "name": "deepseek-code-cli",
   "version": "1.0.0",
-  "description": "DeepSeek Code CLI - Vibe coding for the deepseek-v4 model in your terminal",
+  "description": "在终端中使用 DeepSeek-V4 模型进行 AI 辅助编程（Vibe Coding），缓存命中率 99.6%，极致降低 API 成本。",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/zlf1238/deepseek-code-cli.git"
   },
   "bin": {
     "deepseek-code": "./dist/cli.cjs"

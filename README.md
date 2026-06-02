@@ -1,6 +1,6 @@
 # DeepSeek Code CLI
 
-在终端中使用 DeepSeek-V4 模型进行 AI 辅助编程（Vibe Coding）。
+在终端中使用 DeepSeek-V4 模型进行 AI 辅助编程（Vibe Coding），缓存命中率高达 **99.6%**，极致降低 API 成本。
 
 ## 前置依赖
 
@@ -53,18 +53,10 @@ node dist/cli.cjs
     "BASE_URL": "https://api.deepseek.com",
     "API_KEY": "sk-..."
   },
-  "mode": "pro",                       // pro | flash | auto（模型自动切换）
+  "mode": "pro",                       // pro | flash | auto（三档模式）
   "thinkingEnabled": true,             // 开启思考模式
   "reasoningEffort": "max",            // high | max
   "verboseMode": false,                // 详细模式：显示完整思考过程
-  "autoSwitch": {
-    "enabled": true,                   // 价格感知模型自动切换
-    "maxPaybackRounds": 8
-  },
-  "pricing": {
-    "inputPricePerMillion": 0.55,      // 自定义输入价格（元/百万token）
-    "outputPricePerMillion": 2.19
-  },
   "gitnexus": {
     "enabled": true,                   // GitNexus 知识图谱集成
     "autoIndex": true,                 // 会话启动时自动索引
