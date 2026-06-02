@@ -135,10 +135,8 @@ export class App {
   private pendingAskMessageId: string | null = null;
   /** 后台运行进程快照，用于状态行展示 */
   private runningProcesses: SessionEntry["processes"] = null;
-  /** /learn 生成的总结等待用户确认是否写入 AGENTS.md */
-  private pendingLearnConfirm = false;
-  /** 内联选择菜单（/model、/thinking、/skills 的交互菜单） */
-  private inlineSelectKind: "model" | "thinking" | "skills" | null = null;
+  /** 内联选择菜单（/model、/thinking、/skills、/learn 的交互菜单） */
+  private inlineSelectKind: "model" | "thinking" | "skills" | "learn" | null = null;
   private inlineSelectItems: SelectItem[] = [];
   private inlineSelectIndex = 0;
   /** 通过 /skills 菜单选中的技能，将在下次提交 prompt 时附加 */
@@ -542,40 +540,6 @@ export class App {
       return;
     }
 
-    // P3-5: /learn 确认模式
-    if (this.pendingLearnConfirm) {
-      if (data === "y" || data === "Y" || data === "\r" || data === "\n") {
-        this.pendingLearnConfirm = false;
-        // 用户确认，让 LLM 写入 AGENTS.md
-        this.addMessage("user", "用户已确认，请将之前生成的学习总结写入 AGENTS.md。如果 AGENTS.md 不存在则创建，如果已存在则在末尾追加。");
-        this.renderChat();
-        const prompt: UserPromptContent = { text: "用户已确认，请将之前生成的学习总结写入 AGENTS.md。如果 AGENTS.md 不存在则创建，如果已存在则在末尾追加。" };
-        this.errorLine = null;
-        this.setBusy(true);
-        this.sessionManager.handleUserPrompt(prompt)
-          .then(() => {
-            const sessionId = this.sessionManager.getActiveSessionId();
-            if (sessionId) this.loadMessagesFromSession(sessionId);
-            this.renderChat();
-            this.sessions = this.sessionManager.listSessions();
-          })
-          .catch((error) => {
-            const msg = error instanceof Error ? error.message : String(error);
-            this.errorLine = msg;
-            this.renderChat();
-          })
-          .finally(() => {
-            this.setBusy(false);
-            this.renderChat();
-          });
-      } else {
-        this.pendingLearnConfirm = false;
-        this.addMessage("assistant", "已取消写入 AGENTS.md。");
-        this.renderChat();
-      }
-      return;
-    }
-
     // 删除确认模式
     if (this.pendingDeleteIds) {
       if (data === "\r" || data === "\n") {
@@ -624,6 +588,8 @@ export class App {
                 this.handleInlineThinkingSelect(selectedItem.value);
               } else if (this.inlineSelectKind === "skills") {
                 this.handleInlineSkillToggle(selectedItem.value);
+              } else if (this.inlineSelectKind === "learn") {
+                this.handleLearnClassificationSelect(selectedItem.value);
               }
             }
             return;
@@ -957,9 +923,14 @@ export class App {
       }
 
       case "learn": {
-        // 先让 LLM 生成总结，等待用户确认后再写入 AGENTS.md
+        // 先让 LLM 生成总结，等待用户选择分类后写入对应文件
         if (this.busy) return;
-        const learnPromptText = `/learn -- 请根据本轮对话生成学习总结，列出错误和教训。**不要写入文件**，先输出总结内容供用户确认。`;
+        const learnPromptText = `/learn -- 请根据本轮对话生成学习总结，列出错误和教训。同时为每条教训判断建议分类：
+- 项目特有/保留规则（写入项目 AGENTS.md active 区）
+- 通用原则/保留规则（写入全局 AGENTS.md active 区）
+- 已归档（写入 AGENTS-ARCHIVE.md，场景不再出现）
+- 已自动化（标记为工具改造需求）
+**不要写入文件**，先输出总结内容供用户确认分类。`;
         this.addMessage("user", learnPromptText);
         this.renderChat();
         const prompt: UserPromptContent = { text: learnPromptText };
@@ -969,10 +940,14 @@ export class App {
           .then(() => {
             const sessionId = this.sessionManager.getActiveSessionId();
             if (sessionId) this.loadMessagesFromSession(sessionId);
-            this.addMessage("assistant", "以上是学习总结。输入 **y** 确认写入 AGENTS.md，输入 **n** 或按 Esc 取消。");
+            this.addMessage("assistant", "以上是学习总结，请选择分类后按回车确认写入，或按 Esc 取消。");
             this.renderChat();
             this.sessions = this.sessionManager.listSessions();
-            this.pendingLearnConfirm = true;
+            // 弹出分类选择菜单
+            this.buildLearnInlineItems();
+            this.inlineSelectKind = "learn";
+            this.renderChat();
+            this.tui.requestRender();
           })
           .catch((error) => {
             const msg = error instanceof Error ? error.message : String(error);
@@ -1073,6 +1048,33 @@ export class App {
     this.inlineSelectIndex = 0;
   }
 
+  /** 构建 /learn 分类内联选择菜单项 */
+  private buildLearnInlineItems(): void {
+    this.inlineSelectItems = [
+      {
+        value: "active-project",
+        label: "  项目特有 / 保留规则",
+        description: "写入项目 AGENTS.md active 区",
+      },
+      {
+        value: "active-global",
+        label: "  通用原则 / 保留规则",
+        description: "写入全局 AGENTS.md active 区",
+      },
+      {
+        value: "archive",
+        label: "  已归档",
+        description: "写入 AGENTS-ARCHIVE.md",
+      },
+      {
+        value: "auto",
+        label: "  已自动化",
+        description: "标记为工具改造需求，不写入规则文件",
+      },
+    ];
+    this.inlineSelectIndex = 0;
+  }
+
   /** 构建技能内联选择菜单项 */
   private buildSkillsInlineItems(): void {
     this.inlineSelectItems = this.skills.map((s) => {
@@ -1109,6 +1111,46 @@ export class App {
       this.addMessage("assistant", `推理深度将在新会话中切换为 ${effort}（当前会话不受影响）`);
     }
     this.closeInlineSelect();
+  }
+
+  /** 处理 /learn 分类选择 */
+  private handleLearnClassificationSelect(value: string): void {
+    this.closeInlineSelect();
+
+    const classificationLabels: Record<string, string> = {
+      "active-project": "项目特有 / 保留规则（写入项目 AGENTS.md active 区）",
+      "active-global": "通用原则 / 保留规则（写入全局 AGENTS.md active 区）",
+      archive: "已归档（写入 AGENTS-ARCHIVE.md）",
+      auto: "已自动化（标记为工具改造需求）",
+    };
+
+    const label = classificationLabels[value] ?? value;
+    const writeInstruction = this.getWriteInstruction(value);
+
+    this.addMessage("user", `用户已确认分类【${label}】。${writeInstruction}`);
+    this.renderChat();
+    const prompt: UserPromptContent = {
+      text: `用户已确认分类【${label}】。${writeInstruction}`,
+    };
+    this.errorLine = null;
+    this.setBusy(true);
+    this.sessionManager
+      .handleUserPrompt(prompt)
+      .then(() => {
+        const sessionId = this.sessionManager.getActiveSessionId();
+        if (sessionId) this.loadMessagesFromSession(sessionId);
+        this.renderChat();
+        this.sessions = this.sessionManager.listSessions();
+      })
+      .catch((error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.errorLine = msg;
+        this.renderChat();
+      })
+      .finally(() => {
+        this.setBusy(false);
+        this.renderChat();
+      });
   }
 
   /** 处理技能切换（不关闭菜单，可连续选择多个技能） */
@@ -1513,5 +1555,21 @@ export class App {
       this.renderChat();
     }
     this.tui.requestRender();
+  }
+
+  /** 根据分类获取写入指令文本 */
+  private getWriteInstruction(value: string): string {
+    switch (value) {
+      case "active-project":
+        return "请将之前生成的学习总结写入项目根目录的 AGENTS.md 的「实战经验手册」章节，追加到现有规则列表末尾。";
+      case "active-global":
+        return "请将之前生成的学习总结写入 ~/.deepseek-code/AGENTS.md 的「实战经验手册」章节，追加到现有规则列表末尾。";
+      case "archive":
+        return "请将之前生成的学习总结写入项目根目录的 AGENTS-ARCHIVE.md 的对应章节。";
+      case "auto":
+        return "这条教训适合工具自动化处理，不需要写入规则文件。请输出确认信息。";
+      default:
+        return "请将之前生成的学习总结写入项目根目录的 AGENTS.md 的「实战经验手册」章节，追加到现有规则列表末尾。";
+    }
   }
 }
