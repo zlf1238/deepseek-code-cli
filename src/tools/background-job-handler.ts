@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import * as fs from "fs";
+import * as path from "path";
 import type { ToolExecutionContext, ToolExecutionResult, ToolExecutionFollowUpMessage } from "./executor";
 
 const MAX_OUTPUT_CHARS = 20000;
@@ -34,6 +36,16 @@ export async function handleRunBackgroundTool(
   const command = typeof args.command === "string" ? args.command.trim() : "";
   if (!command) {
     return { ok: false, name: "run_background", error: "Missing required \"command\" string." };
+  }
+
+  // 自动验证命令中引用的文件路径是否存在
+  const pathError = verifyCommandPaths(command, context.projectRoot);
+  if (pathError) {
+    return {
+      ok: false,
+      name: "run_background",
+      error: pathError
+    };
   }
 
   const description = typeof args.description === "string" ? args.description.trim() : command;
@@ -168,6 +180,35 @@ export async function handleListJobsTool(
     output: `${jobs.length} job(s):\n${lines.join("\n")}`,
     metadata: { count: jobs.length },
   };
+}
+
+/**
+ * 验证命令中引用的文件路径是否存在。
+ * 仅检查以常见脚本/源码扩展名结尾且包含路径分隔符的 token。
+ */
+function verifyCommandPaths(command: string, projectRoot: string): string | null {
+  const fileExtensions = /\.(ts|js|tsx|jsx|mjs|cjs|py|sh|go|rs|java|c|cpp|rb|php)$/i;
+  const tokens = command.split(/\s+/);
+
+  for (const token of tokens) {
+    // 跳过命令行选项（以 - 开头）
+    if (token.startsWith("-")) continue;
+    // 跳过纯命令（不包含路径分隔符）
+    if (!token.includes("/") && !token.includes("\\")) continue;
+
+    // 仅检查常见源码扩展名
+    if (fileExtensions.test(token)) {
+      const resolvedPath = path.isAbsolute(token)
+        ? token
+        : path.join(projectRoot, token);
+
+      if (!fs.existsSync(resolvedPath)) {
+        return `File not found: ${resolvedPath}\n  Path was extracted from command: ${command}`;
+      }
+    }
+  }
+
+  return null;
 }
 
 export async function handleStopJobTool(

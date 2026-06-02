@@ -16,7 +16,8 @@ import {
   getSnippet,
   isFullFileView,
   normalizeFilePath,
-  recordFileState
+  recordFileState,
+  type FileState
 } from "./state";
 
 const MAX_CANDIDATE_COUNT = 5;
@@ -175,7 +176,7 @@ export async function handleEditTool(
         };
       }
 
-      const fileState = getFileState(context.sessionId, filePath);
+      let fileState = getFileState(context.sessionId, filePath);
       if (!fileState) {
         return {
           ok: false,
@@ -184,12 +185,26 @@ export async function handleEditTool(
         };
       }
 
+      // 自动读全文件：edit 调用时若文件只被部分读取过，自动读取完整内容
       if (!snippet && !isFullFileView(fileState)) {
-        return {
-          ok: false,
-          name: "edit",
-          error: "File was only partially read. Use snippet_id or read the full file before editing."
-        };
+        try {
+          const autoReadMetadata = readTextFileWithMetadata(filePath);
+          recordFileState(context.sessionId, {
+            filePath,
+            content: autoReadMetadata.content,
+            timestamp: autoReadMetadata.timestamp,
+            encoding: autoReadMetadata.encoding,
+            lineEndings: autoReadMetadata.lineEndings,
+          });
+          fileState = getFileState(context.sessionId, filePath) ?? fileState as FileState;
+        } catch (readError) {
+          const message = readError instanceof Error ? readError.message : String(readError);
+          return {
+            ok: false,
+            name: "edit",
+            error: `Failed to auto-read file: ${message}`
+          };
+        }
       }
 
       if (hasFileChangedSinceState(filePath, fileState)) {
