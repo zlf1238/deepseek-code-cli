@@ -1146,8 +1146,9 @@ export class App {
       this.showSlashMenu = false;
       this.slashItems = [];
     }
-    // 菜单可见性变化时需要重建当前视图（因为菜单组件在 renderChat/renderWelcome 中添加到 root）
-    if (this.showSlashMenu !== prevShow) {
+    // 菜单可见性变化或内容更新时需要重建当前视图
+    // （SlashCommandList 在 renderChat/renderWelcome 中创建，不重建不会更新）
+    if (this.showSlashMenu !== prevShow || this.showSlashMenu) {
       if (this.view === "chat") this.renderChat();
       else if (this.view === "welcome") this.renderWelcome();
     }
