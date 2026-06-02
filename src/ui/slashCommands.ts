@@ -1,4 +1,5 @@
 import type { SkillInfo } from "../session";
+import { fuzzyFilter } from "../tui/fuzzy";
 
 export type SlashCommandKind = "skill" | "skills" | "model" | "thinking" | "autoThinking" | "verbose" | "new" | "resume" | "exit" | "learn" | "worklog";
 
@@ -99,7 +100,7 @@ export function filterSlashCommands(
     // 从而避免回滚缓冲区中的旧对话消息被滚动暴露
     return items.filter((item) => item.kind !== "skill");
   }
-  return items.filter((item) => item.name.toLowerCase().includes(query));
+  return fuzzyFilter(items, query, (item) => item.name);
 }
 
 export function findExactSlashCommand(

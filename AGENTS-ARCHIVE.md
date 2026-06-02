@@ -44,6 +44,10 @@
 - 教训：迁移完成后用原版逐项对比功能清单，而非等用户逐个指出。
 - 具体缺失项：斜杠命令菜单、增量 token 统计、AI 响应即时刷新、状态行延迟、双 ● 前缀、ModeBar 位置等。
 
+**已有经验规则在本次会话中验证有效**
+- 规则"用户表述模糊时先确认"：用户说"自动匹配"有 3 种可能含义，用 ask_choice 选项确认后精准实施。
+- 规则"复用已有工具函数"：发现 `fuzzyFilter` 已存在但未被斜杠命令使用，补充调用而非另起炉灶。
+
 ### 已自动化（待工具改造）
 
 **Python 脚本修改文件后必须验证**
@@ -57,6 +61,10 @@
 **multi_edit 是批量修改的首选工具**
 - 多文件多处修改用 `multi_edit` 一次提交，比逐个 `edit` 高效。
 - `multi_edit` 写入后自动更新文件状态，后续操作不受影响。
+
+**`run_background` 的 glob 路径检测应跳过通配符模式** ✅ 已实现
+- 现象：`run_background` 从命令中提取 `*.test.ts` 路径时因 glob 模式找不到文件而拒绝执行。
+- 解决：在 `verifyCommandPaths` 中添加 glob 通配符检测（`[*?[{}]`），包含通配符的 token 直接跳过路径验证。
 
 ---
 
@@ -103,3 +111,11 @@
 
 **批量修改 text 前先 grep 看全貌**
 - 用 regex 批量改 test mock 时，先 `grep -n pattern` 看所有变体，再一次性写完整的替换脚本。
+
+---
+
+**isFullFileView 将带 offset/limit 的读取视为 partial view**
+- 即使 `offset=1, limit=135` 覆盖了全部行，仍不算 full view。这是有意设计——带 offset/limit = 只想看一部分。绕过方式：不传 offset/limit，或用 snippet_id。已通过 Edit auto-read 自动补偿。
+
+**测试预先存在失败应先确认再提交**
+- 改动不影响已有失败测试时，确认其与当前改动无关即可，不必修复。但提交前应明确记录这一判断。

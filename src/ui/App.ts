@@ -641,6 +641,20 @@ export class App {
             this.showSlashMenu = false;
             this.slashItems = [];
             this.slashMenuSuppressed = true;
+          } else if (data === "\t") {
+            // Tab: 自动补全唯一匹配的命令
+            const allItems = buildSlashCommands(this.skills);
+            const filteredItems = filterSlashCommands(allItems, this.promptInput.value);
+            if (filteredItems.length === 1) {
+              this.slashMenuSuppressed = true;
+              this.promptInput.setValue(filteredItems[0].label + " ");
+              this.showSlashMenu = false;
+              this.slashItems = [];
+              if (this.view === "chat") this.renderChat();
+              else if (this.view === "welcome") this.renderWelcome();
+            }
+            this.tui.requestRender();
+            return;
           } else {
             // 其他输入委托给 Input
             this.promptInput.handleInput(data);
@@ -1116,6 +1130,18 @@ export class App {
       );
       this.slashMenuIndex = 0;
       this.showSlashMenu = this.slashItems.length > 0;
+
+      // 自动选中唯一匹配项（排除裸 / 的情况）
+      if (ctx.buffer.length > 1 && this.slashItems.length === 1) {
+        const item = this.slashItems[0];
+        this.showSlashMenu = false;
+        this.slashItems = [];
+        this.slashMenuSuppressed = true;
+        this.promptInput.clear();
+        this.handleSlashCommandSelection(item);
+        this.tui.requestRender();
+        return;
+      }
     } else {
       this.showSlashMenu = false;
       this.slashItems = [];

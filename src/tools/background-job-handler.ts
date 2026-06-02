@@ -195,6 +195,8 @@ function verifyCommandPaths(command: string, projectRoot: string): string | null
     if (token.startsWith("-")) continue;
     // 跳过纯命令（不包含路径分隔符）
     if (!token.includes("/") && !token.includes("\\")) continue;
+    // 跳过包含 glob 通配符的 token（shell 会自行展开）
+    if (/[*?[{}]/.test(token)) continue;
 
     // 仅检查常见源码扩展名
     if (fileExtensions.test(token)) {
