@@ -34,13 +34,20 @@ node dist/cli.cjs
 
 ```json
 {
+  "mode": "auto",
   "env": {
-    "MODEL": "deepseek-v4-pro",
+    "MODEL": "deepseek-v4-flash",
     "BASE_URL": "https://api.deepseek.com",
     "API_KEY": "sk-..."
   },
   "thinkingEnabled": true,
-  "reasoningEffort": "max"
+  "reasoningEffort": "high",
+  "verboseMode": true,
+  "gitnexus": {
+    "enabled": true,
+    "autoIndex": true,
+    "maxIndexAgeMinutes": 30
+  }
 }
 ```
 
@@ -48,40 +55,38 @@ node dist/cli.cjs
 
 ```jsonc
 {
+  "mode": "auto",                       // auto | pro | flash（三档模式）
   "env": {
-    "MODEL": "deepseek-v4-pro",       // 默认模型
+    "MODEL": "deepseek-v4-flash",        // 默认模型
     "BASE_URL": "https://api.deepseek.com",
     "API_KEY": "sk-..."
   },
-  "mode": "pro",                       // pro | flash | auto（三档模式）
-  "thinkingEnabled": true,             // 开启思考模式
-  "autoThinkingEnabled": true,         // 思考关闭时自动判断复杂度并开启
-  "reasoningEffort": "max",            // high | max
-  "verboseMode": false,                // 详细模式：显示完整思考过程
-  "webSearchTool": "/path/to/search.sh", // 自定义网络搜索脚本
-  "notify": "webhook-url",             // 异步通知 URL
-  "pricing": {                         // 全局定价（可被 models 覆盖）
-    "inputPricePerMillion": 0.55,
-    "outputPricePerMillion": 2.19,
-    "inputCacheHitPricePerMillion": 0.025,
-    "inputCacheMissPricePerMillion": 0.55
-  },
-  "models": {                          // 模型级覆盖配置
+  "thinkingEnabled": true,              // 开启思考模式
+  "reasoningEffort": "high",            // high | max
+  "verboseMode": true,                  // 详细模式：显示完整思考过程
+  "webSearchTool": "/root/.deepseek-code/web-search.sh", // 自定义网络搜索脚本
+  "models": {                           // 模型级配置
     "deepseek-v4-pro": {
-      "apiKey": "sk-xxx",              // 单独指定 API Key
-      "baseURL": "https://api.deepseek.com",
-      "pricing": {                     // 优先级高于全局 pricing
+      "pricing": {
         "inputPricePerMillion": 3,
         "outputPricePerMillion": 6,
         "inputCacheHitPricePerMillion": 0.025,
         "inputCacheMissPricePerMillion": 3
       }
+    },
+    "deepseek-v4-flash": {
+      "pricing": {
+        "inputPricePerMillion": 1,
+        "outputPricePerMillion": 2,
+        "inputCacheHitPricePerMillion": 0.02,
+        "inputCacheMissPricePerMillion": 1
+      }
     }
   },
   "gitnexus": {
-    "enabled": true,                   // GitNexus 知识图谱集成
-    "autoIndex": true,                 // 会话启动时自动索引
-    "maxIndexAgeMinutes": 30           // 索引过期时间
+    "enabled": true,                    // GitNexus 知识图谱集成
+    "autoIndex": true,                  // 会话启动时自动索引
+    "maxIndexAgeMinutes": 30            // 索引过期时间
   }
 }
 ```
