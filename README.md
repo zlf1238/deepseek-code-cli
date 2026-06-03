@@ -55,8 +55,29 @@ node dist/cli.cjs
   },
   "mode": "pro",                       // pro | flash | auto（三档模式）
   "thinkingEnabled": true,             // 开启思考模式
+  "autoThinkingEnabled": true,         // 思考关闭时自动判断复杂度并开启
   "reasoningEffort": "max",            // high | max
   "verboseMode": false,                // 详细模式：显示完整思考过程
+  "webSearchTool": "/path/to/search.sh", // 自定义网络搜索脚本
+  "notify": "webhook-url",             // 异步通知 URL
+  "pricing": {                         // 全局定价（可被 models 覆盖）
+    "inputPricePerMillion": 0.55,
+    "outputPricePerMillion": 2.19,
+    "inputCacheHitPricePerMillion": 0.025,
+    "inputCacheMissPricePerMillion": 0.55
+  },
+  "models": {                          // 模型级覆盖配置
+    "deepseek-v4-pro": {
+      "apiKey": "sk-xxx",              // 单独指定 API Key
+      "baseURL": "https://api.deepseek.com",
+      "pricing": {                     // 优先级高于全局 pricing
+        "inputPricePerMillion": 3,
+        "outputPricePerMillion": 6,
+        "inputCacheHitPricePerMillion": 0.025,
+        "inputCacheMissPricePerMillion": 3
+      }
+    }
+  },
   "gitnexus": {
     "enabled": true,                   // GitNexus 知识图谱集成
     "autoIndex": true,                 // 会话启动时自动索引
@@ -152,10 +173,16 @@ node dist/cli.cjs
 
 ```
 src/
-├── tools/           # 工具处理器（grep, edit, bash, gitnexus 等）
-├── prompt.ts        # system prompt 构建
+├── cli.tsx           # 入口（参数解析、TTY 检测）
 ├── session.ts       # 会话管理、API 调用
-├── settings.ts      # 配置解析
-├── repair/          # 输出修复（截断、JSON 修复）
-└── ui/              # TUI 组件（Ink 渲染）
+├── prompt.ts        # system prompt 构建
+├── settings.ts      # 配置解析与定价计算
+├── model-capabilities.ts  # 模型能力与内置定价
+├── openai-thinking.ts     # 思考过程解析
+├── updateCheck.ts   # npm 更新检查
+├── notify.ts        # 异步通知
+├── tools/           # 工具处理器（grep, edit, bash, gitnexus 等 22 个）
+├── tui/             # 终端事件处理（输入、模糊搜索、撤销栈等）
+├── ui/              # TUI 组件（Ink 差分渲染）
+└── repair/          # 输出修复（截断恢复、JSON 修复）
 ```
